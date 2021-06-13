@@ -8,7 +8,7 @@
 
 **The purpose of this is for experimentation and development of similar rest APIs.**
 
-## [Contributing](https://github.com/OpenDoge/opendogeserver/CONTRIBUTING.md)
+## [Contributing](https://github.com/OpenDoge/opendogeserver/blob/master/CONTRIBUTING.md)
 
 ## Installing
 
