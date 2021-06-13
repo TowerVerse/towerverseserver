@@ -1,0 +1,19 @@
+version: 2.1
+
+orbs:
+  python: circleci/python@1.2
+
+jobs:
+  build:
+    docker:
+      - image: circleci/python:3.8.5
+        auth:
+          username: mydockerhub-user
+          password: $DOCKERHUB_PASSWORD
+    steps:
+      - checkout
+      - run: |
+          pip install .[tests]
+          python3 opendogeserver/server.py &
+          pytest opendogeserver/tests
+          kill $!
