@@ -631,8 +631,8 @@ async def serve(wss: WebSocketClientProtocol, path: str) -> None:
         except ConnectionClosed as e:
             """ Don't remove traveller from IP requests, prevent spam. """
 
-            """ Remove a traveller from the linked accounts list, not online anymore. """
-            if wss.remote_address[0] in wss_accounts:
+            """ Remove a traveller from the linked accounts list, not online anymore. Only for production servers. """
+            if wss.remote_address[0] in wss_accounts and not IS_TEST:
                 del wss_accounts[wss.remote_address[0]]
 
             print(f'A traveller has disconnected. Code: {e.code} | Travellers online: {len(wss_accounts)}')
