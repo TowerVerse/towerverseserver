@@ -75,7 +75,7 @@ total_requests = 0
 """ For ratelimiting IPs. """
 ip_requests: Dict[str, int] = {}
 
-""" ONLY USED FOR THE TEST VERSION """
+""" ONLY USED FOR THE LOCAL VERSION """
 
 """ The registered accounts. """
 travellers: Dict[str, Traveller] = {}
@@ -83,7 +83,7 @@ travellers: Dict[str, Traveller] = {}
 """ The registered towers/rooms. """
 towers: Dict[str, Tower] = {}
 
-""" ONLY USED FOR THE TEST VERSION """
+""" ONLY USED FOR THE LOCAL VERSION """
 
 """ Max requests until IP ratelimits are cleared. """
 IP_RATELIMIT_MAX = 10
@@ -106,8 +106,8 @@ MAX_PASS_LENGTH = 20
 """ Accounts linked to IPs. """
 wss_accounts: Dict[str, str] = {}
 
-""" Whether or not this is a test simulation. """
-IS_TEST = '--tests' in argv
+""" Whether or not this is a locally-hosted server. """
+IS_LOCAL = '--local' in argv
 
 """ MongoDB-related, mdbclient and mdb are filled in at setup_mongo_credentials. """
 mongo_project_name = 'opendoge'
@@ -319,7 +319,7 @@ def event_create_traveller(event: str, traveller_name: str, traveller_email: str
     """ Prevent duplicate emails. """
     is_email_taken = False
 
-    if IS_TEST:
+    if IS_LOCAL:
         for key, item in travellers.items():
             if item.traveller_email == traveller_email:
                 is_email_taken = True
@@ -345,7 +345,7 @@ def event_create_traveller(event: str, traveller_name: str, traveller_email: str
     """ Equally if not more important than the password. """
     hashed_hash = hashpw(bytes(traveller_hash, encoding='ascii'), gensalt(rounds=13))
 
-    if IS_TEST:
+    if IS_LOCAL:
         travellers[traveller_id] = Traveller(traveller_id, traveller_name, traveller_email, hashed_password)
     else:
         mdb.users.insert_one({traveller_id: {'travellerName': traveller_name, 'travellerEmail': traveller_email,
@@ -387,7 +387,7 @@ def event_login_traveller(event: str, traveller_email: str, traveller_password: 
     """ Determine which id the email is associated with. """
     traveller_id = ''
 
-    if IS_TEST:
+    if IS_LOCAL:
         for key, item in travellers.items():
             if item.traveller_email == traveller_email:
                 traveller_id = key
@@ -408,7 +408,7 @@ def event_login_traveller(event: str, traveller_email: str, traveller_password: 
         if item == traveller_id:
             return format_res_err(event, 'AccountTaken', 'Another user has already logged into this account.')
 
-    if checkpw(bytes(traveller_password, encoding='ascii'), travellers[traveller_id].traveller_password if IS_TEST
+    if checkpw(bytes(traveller_password, encoding='ascii'), travellers[traveller_id].traveller_password if IS_LOCAL
                                                             else get_users()[traveller_id]['travellerPassword']):
         """ Link the IP to an account. """
         wss_accounts[wss.remote_address[0]] = traveller_id
@@ -447,7 +447,7 @@ def event_fetch_traveller(event: str, traveller_id: str):
     """
     traveller_name = ''
 
-    if IS_TEST:
+    if IS_LOCAL:
         if traveller_id in travellers:
             traveller_name = travellers[traveller_id].traveller_name
     else:
@@ -464,7 +464,7 @@ def event_fetch_travellers(event: str):
     Possible Responses:
         fetchTravellersReply: The existing traveller IDs have been successfully fetched.
     """
-    return format_res(event, travellerIds=[id for id in travellers] if IS_TEST else [id for id in get_users()])
+    return format_res(event, travellerIds=[id for id in travellers] if IS_LOCAL else [id for id in get_users()])
 
 def event_total_travellers(event: str):
     """Returns the number of created traveller accounts.
@@ -472,7 +472,7 @@ def event_total_travellers(event: str):
     Possible Responses:
         totalTravellersReply: The number of existing travellers has been successfully fetched.
     """
-    return format_res(event, totalTravellers=len(travellers) if IS_TEST else len(get_users()))
+    return format_res(event, totalTravellers=len(travellers) if IS_LOCAL else len(get_users()))
 
 def event_online_travellers(event: str):
     """Returns the number of online travellers.
@@ -541,7 +541,7 @@ async def request_switcher(wss: WebSocketClientProtocol, data: dict):
         except Exception as e:
 
             """ Create bug report. """
-            if IS_TEST:
+            if IS_LOCAL:
                 print(e)
             else:
                 try:
@@ -632,7 +632,7 @@ async def serve(wss: WebSocketClientProtocol, path: str) -> None:
             """ Don't remove traveller from IP requests, prevent spam. """
 
             """ Remove a traveller from the linked accounts list, not online anymore. Only for production servers. """
-            if wss.remote_address[0] in wss_accounts and not IS_TEST:
+            if wss.remote_address[0] in wss_accounts and not IS_LOCAL:
                 del wss_accounts[wss.remote_address[0]]
 
             print(f'A traveller has disconnected. Code: {e.code} | Travellers online: {len(wss_accounts)}')
@@ -692,10 +692,10 @@ async def task_cleanup_account_links() -> None:
         await asyncio.sleep(IP_ACCOUNT_CLEANUP_INTERVAL)
 
 if __name__ == '__main__':
-    print(f"Server type: {'PRODUCTION' if not IS_TEST else 'TESTING'}")
+    print(f"Server type: {'PRODUCTION' if not IS_LOCAL else 'LOCAL'}")
 
     """ Setup MongoDB. """
-    if not IS_TEST:
+    if not IS_LOCAL:
         if not 'OPENDOGE_MONGODB_USERNAME' in environ and not 'OPENDOGE_MONGODB_PASSWORD' in environ:
             print('MongoDB variables must either be passed to the start function or set to the environmental variables: OPENDOGE_MONGODB_USERNAME, OPENDOGE_MONGODB_PASSWORD for the production server to function!')
             exit()
