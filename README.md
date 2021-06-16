@@ -26,7 +26,7 @@
 
 - **```cd {fork directory}```**
 
-- **```pip install .``` or ```pip install .[tests]``` if you are planning to test newly added events.**
+- **```pip install .``` and ```pip install .[tests]``` if you are planning to add new events.**
 
 ## Hosting locally
 
@@ -34,12 +34,18 @@
 
 - **(Optional) Use ```git switch beta``` to use the latest server features which may or may not be stable.**
 
-- **```python3 opendogeserver/server.py```**
+- **```python3 opendogeserver/server.py --tests```**
+
+- **(In another terminal) ```python3 -m websockets ws://localhost:5000``` and try JSON requests such as: ```{"event": "totalTravellers"}```**
 
 **The server will run on a designated port (5000 by default) at localhost.**
 
+**Note: Passing --tests means no database will be used. Otherwise set the environmental variables OPENDOGE_MONGODB_USERNAME and OPENDOGE_MONGODB_PASSWORD to the ones the OpenDoge owner has given you.**
+
 ## Hosting online
 
-**One must set the *PORT* environmental variable to inform the server that it should be attached to a specific port.**
+**One must set the *PORT* environmental variable as well as to inform the server that it should be attached to a specific port.**
 
-**Otherwise the server will be attached to port 5000, at the IP of the local machine.**
+**Otherwise the server will be attached to port 5000 by default.**
+
+**Remember to set the environmental variables provided in order to run the production server.**
