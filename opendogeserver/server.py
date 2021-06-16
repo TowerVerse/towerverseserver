@@ -19,7 +19,7 @@ from json.decoder import JSONDecodeError
 from socket import gethostname, gethostbyname
 
 """ Specifying variable types. """
-from typing import Dict, List, Set
+from typing import Dict, List
 
 """ Generating account IDs. """
 from random import choice
@@ -336,25 +336,19 @@ def event_create_traveller(event: str, traveller_name: str, traveller_email: str
     """ Visible by fetchTravellers and its not at all private. """
     traveller_id = gen_id()
 
-    """ Should remain hidden at all times, allows instant login to an account, without any password/name. """
-    traveller_hash = str(uuid4())
-
     """ rounds=13 so as to exceed the 214ms bare limit according to: https://security.stackexchange.com/questions/3959/recommended-of-iterations-when-using-pkbdf2-sha256. """
     hashed_password = hashpw(bytes(traveller_password, encoding='ascii'), gensalt(rounds=13))
-
-    """ Equally if not more important than the password. """
-    hashed_hash = hashpw(bytes(traveller_hash, encoding='ascii'), gensalt(rounds=13))
 
     if IS_LOCAL:
         travellers[traveller_id] = Traveller(traveller_id, traveller_name, traveller_email, hashed_password)
     else:
         mdb.users.insert_one({traveller_id: {'travellerName': traveller_name, 'travellerEmail': traveller_email,
-                                            'travellerPassword': hashed_password, 'travellerHash': hashed_hash}})
+                                            'travellerPassword': hashed_password}})
 
         """ Update registered emails and accounts links. """
     wss_accounts[wss.remote_address[0]] = traveller_id
 
-    return format_res(event, travellerId=traveller_id, travellerHash=traveller_hash)
+    return format_res(event, travellerId=traveller_id)
 
 def event_login_traveller(event: str, traveller_email: str, traveller_password: str, wss: WebSocketServerProtocol):
     """Logs in a websocket connection to a traveller account.
