@@ -16,7 +16,6 @@ class Tower():
 class Traveller():
     """The base Traveller instance. """
     traveller_id: int
-    traveller_creator_ip: str
     traveller_name: str
     traveller_email: str
     traveller_password: str

@@ -5,7 +5,7 @@ from json import dumps, loads
 import pytest
 
 @pytest.mark.asyncio
-@pytest.mark.run(order=6)
+@pytest.mark.run(order=7)
 async def test_create_traveller_response():
     async with websockets.connect('ws://localhost:5000') as wss:
 
