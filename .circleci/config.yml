@@ -13,7 +13,8 @@ jobs:
     steps:
       - checkout
       - run: |
+          pip install .
           pip install .[tests]
-          python3 opendogeserver/server.py &
+          python3 opendogeserver/server.py --tests &
           pytest opendogeserver/tests
           kill $!
