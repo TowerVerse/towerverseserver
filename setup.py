@@ -6,7 +6,7 @@ setup(
     description = 'The server of opendoge, only used for development purposes.',
     author = 'Shadofer#0001',
     author_email = 'shadowrlrs@gmail.com',
-    python_requires = '>=3.8.5',
+    python_requires = '>=3.7.0',
     url = 'https://github.com/OpenDoge/opendogeserver',
     packages = ['opendogeserver'],
     install_requires = ['websockets==9.1', 'email_validator==1.1.3', 'bcrypt==3.2.0', 'pymongo==3.11.4'],

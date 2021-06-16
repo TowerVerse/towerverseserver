@@ -15,7 +15,7 @@
 ### Requirements:
 
 - **OS: macOS/Linux distribution**
-- **python >= 3.8.5**
+- **python >= 3.7.0**
 - **pip**
 
 ### Procedure
