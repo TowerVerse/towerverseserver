@@ -5,7 +5,14 @@ Pass --local in order to disable database-related methods. Otherwise set environ
 
 """
 
-from server import *
+from os import environ
+import asyncio
+
+from websockets import serve as ws_serve
+from socket import gethostname, gethostbyname, gaierror
+
+from constants import IS_LOCAL
+from server import Server, setup_mongo
 from auth import AccountHandler
 
 if __name__ == '__main__':
@@ -18,9 +25,11 @@ if __name__ == '__main__':
 			print('MongoDB variables must either be passed to the start function or set to the environmental variables: OPENDOGE_MONGODB_USERNAME, OPENDOGE_MONGODB_PASSWORD for the production server to function!')
 			exit()
 		else:
-			setup_mongo(environ['OPENDOGE_MONGODB_USERNAME'], environ['OPENDOGE_MONGODB_PASSWORD'])
+			mdb = setup_mongo(environ['OPENDOGE_MONGODB_USERNAME'], environ['OPENDOGE_MONGODB_PASSWORD'])
+	else:
+		mdb = None
 
-	server = Server()
+	server = Server(mdb)
 
 	""" Register events """
 	auth = AccountHandler(server)

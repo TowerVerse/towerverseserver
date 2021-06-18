@@ -1,8 +1,7 @@
 """ System Imports """
-from os import environ
 from time import time
 from inspect import getfullargspec
-import asyncio
+from uuid import uuid4
 
 from typing import Dict, Awaitable
 
@@ -11,12 +10,8 @@ from pymongo.errors import OperationFailure
 from pymongo import MongoClient
 
 """ Websockets """
-from websockets import serve as ws_serve
 from websockets.client import WebSocketClientProtocol
-from websockets.legacy.server import WebSocketServerProtocol
 from websockets.exceptions import ConnectionClosed
-
-from socket import gethostname, gethostbyname, gaierror
 
 """ Formatting responses. """
 from json import dumps, loads
@@ -31,7 +26,8 @@ from utilities import *
 class Server():
 	"""The `Server` class handles all connections and events."""
 
-	def __init__(self):
+	def __init__(self, mdb):
+		self.mdb = mdb
 		self.events: Dict[str, function] = {}
 		self.total_requests = 0
 		self.ip_requests: Dict[str, int] = {}
@@ -50,6 +46,9 @@ class Server():
 			assert len(data['event']) > 0
 		except:
 			return
+		
+		if 'ref' not in data.keys():
+			data['ref'] = False
 
 		try:
 			target: function = self.events[event]
@@ -85,7 +84,7 @@ class Server():
 					print(e)
 				else:
 					try:
-						mdb.users.insert_one({f'bug{str(uuid4())}', str(e)})
+						self.mdb.users.insert_one({f'bug{str(uuid4())}', str(e)})
 					except:
 						print(f'FATAL DATABASE ERROR EXITING: \n{str(e)}')
 						exit()
@@ -93,12 +92,13 @@ class Server():
 				return format_res_err(event, 'EventUnknownError', 'Unknown internal server error.', data['ref'], True)
 		except KeyError:
 			""" Provide the user with the available events, in a seperate key to be able to split them. """
-			possible_events = [to_camel_case(event.replace('event_', '')) for event in globals() if event.startswith('event_')]
+			possible_events = [event for event in self.events.keys()]
 
 			events_response = ''
 
-			for index, ev in enumerate(possible_events):
-				events_response = f"{events_response}{ev}|" if index + 1 < len(possible_events) else f"{events_response}{ev}"
+			for i in range(len(possible_events)):
+				ev = possible_events[i]
+				events_response = f"{events_response}{ev}|" if i + 1 < len(possible_events) else f"{events_response}{ev}"
 			return format_res_err(event, 'EventNotFound', 'This event doesn\'t exist.', data['ref'], True, possibleEvents=events_response)
 
 	async def serve(self, wss: WebSocketClientProtocol, path: str) -> None:
@@ -182,12 +182,8 @@ def setup_mongo(mongodb_username: str, mongodb_password: str) -> None:
 	"""
 	start = time()
 
-	global mdbclient
-    
 	try:
 		mdbclient = MongoClient(f'mongodb+srv://{mongodb_username}:{mongodb_password}@{mongo_project_name}.vevnl.mongodb.net/{mongo_database_name}?{mongo_client_extra_args}')
-
-		global mdb
 
 		mdb = mdbclient[mongo_database_name]
 
@@ -195,6 +191,8 @@ def setup_mongo(mongodb_username: str, mongodb_password: str) -> None:
 		mdb.some_random_collection.count_documents({})
 
 		print(f'Successfully setup MongoDB in {int(round(time() - start, 2) * 1000)} ms.')
+
+		return mdb
 
 	except OperationFailure:
 		print('Invalid username or password provided for MongoDB, exiting.')
