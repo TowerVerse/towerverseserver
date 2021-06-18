@@ -1,3 +1,11 @@
+"""
+
+    Shadofer#0001 and Otterlord#3653
+    Copyright GPL-3
+
+"""
+
+""" BUILT-IN MODULES """
 from string import ascii_uppercase
 from typing import List
 from json import dumps

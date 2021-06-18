@@ -1,14 +1,32 @@
-from server import Server
-from utilities import format_res, format_res_err
-from constants import IS_LOCAL
-from classes import Traveller
+"""
 
+    Shadofer#0001 and Otterlord#3653
+    Copyright GPL-3
+
+"""
+
+""" BUILT-IN MODULES """
+
+""" Generating account IDs. """
 from random import choice
-from string import digits, ascii_letters, ascii_uppercase
+from string import digits, ascii_letters
 
-from email_validator import validate_email, EmailNotValidError
-from bcrypt import checkpw, gensalt, hashpw
+""" 3RD-PARTY MODULES """
+
+""" The main way of communicating. """
 from websockets.client import WebSocketClientProtocol
+
+""" Validating emails. """
+from email_validator import validate_email, EmailNotValidError
+
+""" Password hashing. """
+from bcrypt import checkpw, gensalt, hashpw
+
+""" LOCAL MODULES """
+from opendogeserver.server import Server
+from opendogeserver.utilities import format_res, format_res_err
+from opendogeserver.constants import IS_LOCAL
+from opendogeserver.classes import Traveller
 
 MIN_ACCOUNT_NAME = 3
 MAX_ACCOUNT_NAME = 20

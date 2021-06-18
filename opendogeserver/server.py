@@ -1,21 +1,45 @@
-from utilities import *
-from constants import *
-from classes import *
-from json.decoder import JSONDecodeError
-from json import dumps, loads
-from websockets.exceptions import ConnectionClosed
-from websockets.client import WebSocketClientProtocol
-from pymongo import MongoClient
-from pymongo.errors import OperationFailure
-from time import time
-from inspect import getfullargspec
-from uuid import uuid4
+"""
 
+   Shadofer#0001 and Otterlord#3653
+   Copyright GPL-3 
+   
+"""
+
+""" BUILT-IN MODULES """
+
+""" Parsing responses. """
+from json import loads
+from json.decoder import JSONDecodeError
+
+""" Specifying variable types. """
 from typing import Dict, Awaitable
 
+""" Inspecting functions. """
+from inspect import getfullargspec
+
+""" Performance reports. """
+from time import time
+
+""" Generating unique IDs. """
+from uuid import uuid4
+
+""" 3RD-PARTY MODULES """
+
+""" The main way of communicating. """
+from websockets.exceptions import ConnectionClosed
+from websockets.client import WebSocketClientProtocol
+
+""" Production server MongoDB. """
+from pymongo import MongoClient
+from pymongo.errors import OperationFailure
+
+""" LOCAL MODULES """
+from opendogeserver.utilities import *
+from opendogeserver.constants import *
+from opendogeserver.classes import *
 
 class Server():
-    """The `Server` class handles all connections and events."""
+    """The `Server` class handles all requests/responses."""
 
     def __init__(self, mdb):
         self.mdb = mdb

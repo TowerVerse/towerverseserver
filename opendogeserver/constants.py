@@ -1,6 +1,17 @@
-from pymongo.database import Database
-from pymongo import MongoClient
+"""
+
+    Shadofer#0001 and Otterlord#3653
+    Copyright GPL-3
+
+"""
+
+""" BUILT-IN MODULES """
+
+""" Get command-line arguments. """
 from sys import argv
+
+""" 3RD-PARTY MODULES """
+from pymongo import MongoClient
 
 mongo_project_name = 'opendoge'
 mongo_database_name = 'opendoge-db'
