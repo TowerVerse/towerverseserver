@@ -107,6 +107,70 @@ class AccountHandler():
 
       return format_res(event, ref, travellerId=traveller_id)
 
+    @server.register
+    async def login_traveller(wss, event: str, ref, traveller_email: str, traveller_password: str):
+        """Logs in a websocket connection to a traveller account.
+
+        Args:
+            traveller_email (str): The traveller account's email to login to.
+            traveller_password (str): The traveller account's password to check against.
+          wss (WebSocketClientProtocol): The websocket client.
+
+        Possible Responses:
+            loginTravellerReply: The websocket has successfully connected to a traveller. No additional keys have to be passed for future account-related methods.
+
+            loginTravellerNotFound: The traveller with the required ID could not be found.
+            loginTravellerInvalidPassword: The given password doesn't match the original one.
+            loginTravellerAlreadyLoggedIn: The requestee is already logged into an account.
+            loginTravellerAccountTaken: The target account is already taken by another IP.
+            loginTravellerPasswordExceedsLimit: The provided password exceeds current password length limitations.
+        """
+
+        """ Validate the email, check if it has @ and a valid domain. """
+        try:
+            validate_email(traveller_email)
+        except EmailNotValidError as e:
+            return format_res_err(event, 'EmailInvalid', str(e), ref)
+
+        """ Check password validity. """
+        if not len(traveller_password.strip()) >= MIN_PASS_LENGTH or not len(traveller_password.strip()) <= MAX_PASS_LENGTH:
+            return format_res_err(event, 'PasswordExceedsLimit', f'Traveller password must be between {MIN_PASS_LENGTH} and {MAX_PASS_LENGTH} characters.', ref)
+
+        """ Determine which id the email is associated with. """
+        traveller_id = ''
+
+        if IS_LOCAL:
+            for key, item in travellers.items():
+                if item.traveller_email == traveller_email:
+                    traveller_id = key
+        else:
+            for key, item in self.get_users().items():
+                if item['travellerEmail'] == traveller_email:
+                    traveller_id = key
+
+        if len(traveller_id) == 0:
+            return format_res_err(event, 'NotFound', 'The specified traveller could not be found.', ref)
+
+        """ Check if the requestee is already logged into an account. """
+        if self.check_account(wss.remote_address[0]):
+            return format_res_err(event, 'AlreadyLoggedIn', 'You are currently logged in. Logout and try again.', ref)
+
+        """ Check if someone has already logged into this account. """
+        for key, item in self.server.wss_accounts.items():
+            if item == traveller_id:
+                return format_res_err(event, 'AccountTaken', 'Another user has already logged into this account.', ref)
+
+        if checkpw(bytes(traveller_password, encoding='ascii'), travellers[traveller_id].traveller_password if IS_LOCAL
+                                                                else self.get_users()[traveller_id]['travellerPassword']):
+            """ Link the IP to an account. """
+            self.server.wss_accounts[wss.remote_address[0]] = traveller_id
+
+            return format_res(event, ref, travellerId=traveller_id)
+
+        return format_res_err(event, 'InvalidPassword', f'The password is invalid.', ref)
+
+  """ Shared Methods """
+
   def check_account(self, request_ip: str) -> bool:
     """Checks whether or not an IP is associated with an account.
 
