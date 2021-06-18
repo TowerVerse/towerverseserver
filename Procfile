@@ -1,1 +1,1 @@
-web python opendogeserver/server.py
+web python opendogeserver/main.py

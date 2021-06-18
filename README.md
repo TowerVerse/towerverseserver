@@ -34,7 +34,7 @@
 
 - **(Optional) Use ```git switch beta``` to use the latest server features which may or may not be stable.**
 
-- **```python3 opendogeserver/server.py --local```**
+- **```python3 opendogeserver/main.py --local```**
 
 - **(In another terminal) ```python3 -m websockets ws://localhost:5000``` and try JSON requests such as: ```{"event": "totalTravellers"}```**
 
