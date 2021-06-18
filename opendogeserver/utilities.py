@@ -6,10 +6,15 @@
 """
 
 """ BUILT-IN MODULES """
-from string import ascii_uppercase
-from typing import List
+
+""" Parsing responses. """
 from json import dumps
 
+""" Specifying variables types. """
+from typing import List
+
+""" Checking letters. """
+from string import ascii_uppercase
 
 def to_snake_case(target: str, is_argument: bool = False) -> str:
     """Transforms a python string to a function/argument name.

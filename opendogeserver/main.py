@@ -20,7 +20,6 @@ from socket import gethostname, gethostbyname, gaierror
 """ The main way of communicating. """
 from websockets import serve as ws_serve
 
-
 """ LOCAL MODULES """
 from opendogeserver.constants import IS_LOCAL
 from opendogeserver.server import Server
