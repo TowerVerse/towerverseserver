@@ -26,19 +26,28 @@ class AccountHandler():
             travellers: dict[str, Traveller] = {}
 
         @server.register
-        async def total_travellers(wss, event, ref):
+        async def total_travellers(wss, event: str, ref: str):
             """Get the total number of travellers"""
             # TODO: Return total travellers
             return format_res('totalTravellers', ref, totalTravellers=len(travellers) if IS_LOCAL else len(self.get_users()))
 
         @server.register
-        async def fetch_travellers(wss, event, ref):
+        async def fetch_travellers(wss, event: str, ref: str):
             """List all traveller ids"""
             # TODO: Return traveller ids
             return format_res('fetchTravellers', ref, travellerIds=[id for id in travellers] if IS_LOCAL else [id for id in self.get_users()])
 
         @server.register
-        async def create_traveller(wss, event, ref, traveller_name: str, traveller_email: str, traveller_password: str):
+        async def online_travellers(event: str, ref: str):
+            """Returns the number of online travellers.
+
+            Possible Responses:
+                onlineTravellersReply: The number of online travellers at the moment.
+            """
+            return format_res(event, ref, onlineTravellers=len(self.server.wss_accounts))
+
+        @server.register
+        async def create_traveller(wss, event: str, ref: str, traveller_name: str, traveller_email: str, traveller_password: str):
             """Creates a new traveller account.
 
             Args:
@@ -171,6 +180,24 @@ class AccountHandler():
                 return format_res(event, ref, travellerId=traveller_id)
 
             return format_res_err(event, 'InvalidPassword', f'The password is invalid.', ref)
+
+        @server.register
+        async def logout_traveller(wss, event: str, ref: str):
+            """Logs out a user from his associated traveller, if any. 
+
+            Args:
+                wss (WebSocketClientProtocol): The websocket client.
+
+            Possible Responses:
+                logoutTravellerReply: The IP has successfully logged out of the associated account.
+
+                logoutTravellerNoAccount: There is no account associated with this IP address.
+            """
+            if wss.remote_address[0] in self.server.wss_accounts:
+                del self.server.wss_accounts[wss.remote_address[0]]
+
+                return format_res(event, ref)
+            return format_res_err(event, 'NoAccount', 'There is no account associated with this IP.', ref)
 
         @server.register
         async def fetch_traveller(event: str, ref: str, traveller_id: str):
