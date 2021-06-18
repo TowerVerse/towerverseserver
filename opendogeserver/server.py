@@ -7,12 +7,14 @@
 
 """ BUILT-IN MODULES """
 
+import asyncio
+
 """ Parsing responses. """
 from json import loads
 from json.decoder import JSONDecodeError
 
 """ Specifying variable types. """
-from typing import Dict, Awaitable
+from typing import ClassVar, Dict, Awaitable
 
 """ Inspecting functions. """
 from inspect import getfullargspec
@@ -22,9 +24,6 @@ from time import time
 
 """ Generating unique IDs. """
 from uuid import uuid4
-
-""" Better way for using classes. """
-from dataclasses import dataclass, field
 
 """ 3RD-PARTY MODULES """
 
@@ -42,7 +41,6 @@ from opendogeserver.utilities import *
 from opendogeserver.constants import *
 from opendogeserver.classes import *
 
-@dataclass(frozen=False, eq=False)
 class Server():
     """The `Server` class handles all requests/responses."""
 
@@ -50,14 +48,26 @@ class Server():
     mdb: Database = None
     
     """ The registered events to callback. """
-    events: Dict[str, function] = field(default_factory=dict)
+    events: dict = {}
+    
+    """ The registered accounts. """
+    travellers: Dict[str, Traveller] = {}
+        
+    """ Linking IPs to accounts. """
+    wss_accounts: Dict[str, str] = {}
+
+    """ Determine whether this is a self-hosted simulation, passed at initialisation. """
+    IS_LOCAL: bool = None
+    
+    """ Passed reference to facilitate wrapper-fetching. """
+    current_ref: str = None
     
     """ Telemetry. """
-    total_requests = 0
-    ip_requests: Dict[str, int] = field(default_factory=dict)
-    
-    """ Linking IPs to accounts. """
-    wss_accounts: Dict[str, str] = field(default_factory=dict)
+    ip_requests: Dict[str, int] = {}
+            
+    def __init__(self):
+        """ Telemetry. """
+        self.total_requests = 0
 
     def register(self, callback: Awaitable) -> None:
         """Register an event"""
@@ -65,85 +75,96 @@ class Server():
         if event not in self.events:
             self.events[event] = callback
 
-    async def handle_event(self, wss, data) -> str:
-        """Handles an event"""
+    async def handle_request(self, wss: WebSocketClientProtocol, data: dict) -> str:
+        """Switches events according to the data provided.
+        
+        Args:
+            wss (WebSocketClientProtocol): The client waiting for a response.
+            data (dict): The data sent by the client.
+            
+        Returns:
+            dict: The response according to the request. Nothing may be returned, which means that the request should fail silently.
+            
+        Possible Responses:
+            EventNotFound: The given event could not be found.
+            EventUnknownError: There was an error processing the event.
+            FormatError: The format of the error is incorrect.
+        """
+
+        """ Refuse to process dictionaries without an event key, which must be atleast 1 character long. """
         try:
             event = data['event']
             assert len(data['event']) > 0
-        except:
+        except AssertionError or KeyError:
             return
 
-        if 'ref' not in data.keys():
-            data['ref'] = False
-
         try:
-            target: function = self.events[event]
+            target: function = self.events[to_snake_case(event)]
 
-            args = {}
-            target_args = getfullargspec(target).args
+            target_args_names = getfullargspec(target).args
+            target_args_names.remove('self')
+
+            """ Keyword arguments to pass to the function. """
+            target_args = {}
 
             for arg, value in data.items():
                 arg_to_add = to_snake_case(arg, True)
+                
                 if arg_to_add in target_args:
                     """ Preserve event name. """
                     if arg == 'event':
                         arg_to_add = arg
-                    args[arg_to_add] = value
+                    target_args[arg_to_add] = value
 
             """ Custom arguments to pass manually. """
             if 'wss' in target_args:
-                args['wss'] = wss
-
-            if 'ref' in target_args:
-                args['ref'] = data['ref']
+                target_args['wss'] = wss
 
             """ Check for arguments before calling, the call may not error but some arguments may be empty. """
-            args_errored = check_loop_data(args, target_args)
+            args_errored = check_loop_data(target_args_names, target_args)
 
             if args_errored:
-                return format_res_err(event, 'FormatError', data['ref'], args_errored, True)
+                return format_res_err(event, 'FormatError', args_errored, True)
             try:
-                return await target(**args)
+                return await target(**target_args)
             except Exception as e:
                 """ Create bug report. """
-                if IS_LOCAL:
+                if self.IS_LOCAL:
                     print(e)
                 else:
                     try:
-                        self.mdb.users.insert_one(
-                            {f'bug{str(uuid4())}', str(e)})
+                        self.mdb.users.insert_one({f'bug{str(uuid4())}', str(e)})
                     except:
                         print(f'FATAL DATABASE ERROR EXITING: \n{str(e)}')
                         exit()
 
-                return format_res_err(event, 'EventUnknownError', 'Unknown internal server error.', data['ref'], True)
+                return format_res_err(event, 'EventUnknownError', 'Unknown internal server error.', True)
         except KeyError:
             """ Provide the user with the available events, in a seperate key to be able to split them. """
-            possible_events = [event for event in self.events.keys()]
+            possible_events = [to_camel_case(event.replace('event_', '')) for event in self.events.keys()]
 
             events_response = ''
 
-            for i in range(len(possible_events)):
-                ev = possible_events[i]
-                events_response = f"{events_response}{ev}|" if i + \
-                    1 < len(possible_events) else f"{events_response}{ev}"
-            return format_res_err(event, 'EventNotFound', 'This event doesn\'t exist.', data['ref'], True, possibleEvents=events_response)
+            for i, ev in enumerate(possible_events):
+                events_response = f"{events_response}{ev}|" if i + 1 < len(possible_events) else f"{events_response}{ev}"
+                
+            return format_res_err(event, 'EventNotFound', 'This event doesn\'t exist.', True, possibleEvents=events_response)
 
     async def serve(self, wss: WebSocketClientProtocol, path: str) -> None:
         """Called only by websockets.serve.
 
-Args:
-        wss (WebSocketClientProtocol): The websocket client.
-        path (str): The path which the client wants to access.
-"""
+        Args:
+            wss (WebSocketClientProtocol): The websocket client.
+            path (str): The path which the client wants to access.
+        """
 
-        print(
-            f'A traveller has connected. Travellers online: {len(self.wss_accounts)}')
+        print(f'A traveller has connected. Travellers online: {len(Server.wss_accounts)}')
 
         """ Set to 0 ONLY if the ip doesn't exist since previous IPs are stored even if it disconnects. """
         if wss.remote_address[0] not in self.ip_requests:
             self.ip_requests[wss.remote_address[0]] = 0
 
+        """ Infinite server loop. """
         while True:
             try:
                 response = await wss.recv()
@@ -161,7 +182,7 @@ Args:
 
                 try:
                     assert isinstance(data, dict)
-
+                    
                     """ Prevent strange values. """
                     for key, item in data.items():
                         assert isinstance(key, str)
@@ -169,13 +190,11 @@ Args:
                 except AssertionError:
                     continue
 
-                global current_ref
-
                 """ Remember to return passed reference. """
                 if 'ref' in data:
-                    current_ref = data['ref']
+                    self.current_ref = data['ref']
 
-                result = await self.handle_event(wss, data)
+                result = await self.handle_request(wss, data)
 
                 """ If nothing is returned, skip this call. """
                 if not result:
@@ -187,47 +206,66 @@ Args:
 
                 result = loads(result)
 
-                print(
-                    f"[{self.total_requests}] {result['originalEvent']}: {result['event']}")
+                print(f"[{self.total_requests}] {result['originalEvent']}: {result['event']}")
 
-                current_ref = None
+                """ Reset ref. """
+                self.current_ref = None
 
             except ConnectionClosed as e:
                 """ Don't remove traveller from IP requests, prevent spam. """
 
                 """ Remove a traveller from the linked accounts list, not online anymore. Only for production servers. """
-                if wss.remote_address[0] in self.wss_accounts and not IS_LOCAL:
+                if wss.remote_address[0] in self.wss_accounts and not self.IS_LOCAL:
                     del self.wss_accounts[wss.remote_address[0]]
 
-                print(
-                    f'A traveller has disconnected. Code: {e.code} | Travellers online: {len(self.wss_accounts)}')
+                print(f'A traveller has disconnected. Code: {e.code} | Travellers online: {len(self.wss_accounts)}')
 
                 break
 
+    def setup_mongo(self, mongodb_username: str, mongodb_password: str) -> None:
+        """Sets up MongoDB for production servers.
 
-def setup_mongo(mongodb_username: str, mongodb_password: str) -> Database:
-    """Sets up the mongo database for production servers.
-
-    Args:
+        Args:
             mongodb_username (str): The username of an authored user of the database.
             mongodb_password (str): The password of the authored user.
-    """
-    start = time()
+        """
+        start = time()
 
-    try:
-        mdbclient = MongoClient(
-            f'mongodb+srv://{mongodb_username}:{mongodb_password}@{mongo_project_name}.vevnl.mongodb.net/{mongo_database_name}?{mongo_client_extra_args}')
+        try:
+            mdbclient = MongoClient(f'mongodb+srv://{mongodb_username}:{mongodb_password}@{mongo_project_name}.vevnl.mongodb.net/{mongo_database_name}?{mongo_client_extra_args}')
 
-        mdb = mdbclient[mongo_database_name]
+            mdb = mdbclient[mongo_database_name]
 
-        """ Prevent cold-booting MongoDB's first request in responses, use a random collection. """
-        mdb.some_random_collection.count_documents({})
+            """ Prevent cold-booting MongoDB's first request in responses, use a random collection. """
+            mdb.some_random_collection.count_documents({})
 
-        print(
-            f'Successfully setup MongoDB in {int(round(time() - start, 2) * 1000)} ms.')
+            print(f'Successfully setup MongoDB in {int(round(time() - start, 2) * 1000)} ms.')
 
-        return mdb
+            self.mdb = mdb
 
-    except OperationFailure:
-        print('Invalid username or password provided for MongoDB, exiting.')
-        exit()
+        except OperationFailure:
+            print('Invalid username or password provided for MongoDB, exiting.')
+            exit()
+
+    async def task_cleanup_ip_ratelimits(self) -> None:
+        """Resets the IP ratelimits for every traveller. """
+
+        while True:
+            for ip in self.ip_requests:
+                self.ip_requests[ip] = 0
+
+            await asyncio.sleep(IP_RATELIMIT_CLEANUP_INTERVAL)
+
+    async def task_cleanup_ip_requests(self) -> None:
+        """Resets the IP requests dictionary to delete cached IPs. """
+
+        while True:
+            self.ip_requests.clear()
+            await asyncio.sleep(IP_REQUESTS_CLEANUP_INTERVAL)
+
+    async def task_cleanup_account_links(self) -> None:
+        """Resets the accounts linked to each IP. """
+
+        while True:
+            self.wss_accounts.clear()
+            await asyncio.sleep(IP_ACCOUNT_CLEANUP_INTERVAL)

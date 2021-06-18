@@ -7,7 +7,7 @@
 
 """ BUILT-IN MODULES """
 
-""" Better way for using classes. """
+""" A better way to use classes. """
 from dataclasses import dataclass
 
 @dataclass(frozen=True)
