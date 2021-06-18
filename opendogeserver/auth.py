@@ -28,13 +28,13 @@ class AccountHandler():
     async def total_travellers(wss, event, ref):
       """Get the total number of travellers"""
       # TODO: Return total travellers
-      return format_res('totalTravellers', ref, totalTravellers=0)
+      return format_res('totalTravellers', ref, totalTravellers=len(travellers) if IS_LOCAL else len(self.get_users()))
 
     @server.register
     async def fetch_travellers(wss, event, ref):
       """List all traveller ids"""
       # TODO: Return traveller ids
-      return format_res('fetchTravellers', ref, travellerIds=[])
+      return format_res('fetchTravellers', ref, travellerIds=[id for id in travellers] if IS_LOCAL else [id for id in self.get_users()])
     
     @server.register
     async def create_traveller(wss, event, ref, traveller_name: str, traveller_email: str, traveller_password: str):
@@ -168,6 +168,32 @@ class AccountHandler():
             return format_res(event, ref, travellerId=traveller_id)
 
         return format_res_err(event, 'InvalidPassword', f'The password is invalid.', ref)
+
+    @server.register
+    async def fetch_traveller(event: str, ref: str, traveller_id: str):
+      """Fetches a traveller's info, if he exists in the database.
+
+      Args:
+          traveller_id (str): The id of the traveller to fetch info from.
+
+      Possible Responses:
+          fetchTravellerReply: Info about a traveller has been successfully fetched.
+
+          fetchTravellerNotFound: The traveller with the required ID could not be found.
+      """
+      traveller_name = ''
+
+      if IS_LOCAL:
+          if traveller_id in travellers:
+              traveller_name = travellers[traveller_id].traveller_name
+      else:
+          if traveller_id in self.get_users():
+              traveller_name = self.get_users()[traveller_id]['travellerName']
+
+      if traveller_name:
+          return format_res(event, ref, travellerName=traveller_name, travellerId=traveller_id)
+      return format_res_err(event, 'NotFound', f'Traveller with id {traveller_id} not found.', ref)
+
 
   """ Shared Methods """
 
