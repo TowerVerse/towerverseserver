@@ -8,6 +8,7 @@ from string import digits, ascii_letters, ascii_uppercase
 
 from email_validator import validate_email, EmailNotValidError
 from bcrypt import checkpw, gensalt, hashpw
+from websockets.client import WebSocketClientProtocol
 
 MIN_ACCOUNT_NAME = 3
 MAX_ACCOUNT_NAME = 20
@@ -26,19 +27,19 @@ class AccountHandler():
             travellers: dict[str, Traveller] = {}
 
         @server.register
-        async def total_travellers(wss, event: str, ref: str):
+        async def total_travellers(event: str, ref: str):
             """Get the total number of travellers"""
             # TODO: Return total travellers
             return format_res('totalTravellers', ref, totalTravellers=len(travellers) if IS_LOCAL else len(self.get_users()))
 
         @server.register
-        async def fetch_travellers(wss, event: str, ref: str):
+        async def fetch_travellers(event: str, ref: str):
             """List all traveller ids"""
             # TODO: Return traveller ids
             return format_res('fetchTravellers', ref, travellerIds=[id for id in travellers] if IS_LOCAL else [id for id in self.get_users()])
 
         @server.register
-        async def online_travellers(event: str, ref: str):
+        async def online_travellers(event: str, ref: str) -> str:
             """Returns the number of online travellers.
 
             Possible Responses:
@@ -47,7 +48,7 @@ class AccountHandler():
             return format_res(event, ref, onlineTravellers=len(self.server.wss_accounts))
 
         @server.register
-        async def create_traveller(wss, event: str, ref: str, traveller_name: str, traveller_email: str, traveller_password: str):
+        async def create_traveller(wss: WebSocketClientProtocol, event: str, ref: str, traveller_name: str, traveller_email: str, traveller_password: str) -> str:
             """Creates a new traveller account.
 
             Args:
@@ -120,7 +121,7 @@ class AccountHandler():
             return format_res(event, ref, travellerId=traveller_id)
 
         @server.register
-        async def login_traveller(wss, event: str, ref, traveller_email: str, traveller_password: str):
+        async def login_traveller(wss: WebSocketClientProtocol, event: str, ref, traveller_email: str, traveller_password: str) -> str:
             """Logs in a websocket connection to a traveller account.
 
             Args:
@@ -182,7 +183,7 @@ class AccountHandler():
             return format_res_err(event, 'InvalidPassword', f'The password is invalid.', ref)
 
         @server.register
-        async def logout_traveller(wss, event: str, ref: str):
+        async def logout_traveller(wss: WebSocketClientProtocol, event: str, ref: str) -> str:
             """Logs out a user from his associated traveller, if any. 
 
             Args:
@@ -200,7 +201,7 @@ class AccountHandler():
             return format_res_err(event, 'NoAccount', 'There is no account associated with this IP.', ref)
 
         @server.register
-        async def fetch_traveller(event: str, ref: str, traveller_id: str):
+        async def fetch_traveller(event: str, ref: str, traveller_id: str) -> str:
             """Fetches a traveller's info, if he exists in the database.
 
             Args:

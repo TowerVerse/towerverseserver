@@ -1,4 +1,3 @@
-""" System Imports """
 from utilities import *
 from constants import *
 from classes import *
@@ -14,14 +13,6 @@ from uuid import uuid4
 
 from typing import Dict, Awaitable
 
-""" MongoDB """
-
-""" Websockets """
-
-""" Formatting responses. """
-
-""" LOCAL MODULES """
-
 
 class Server():
     """The `Server` class handles all connections and events."""
@@ -33,13 +24,13 @@ class Server():
         self.ip_requests: Dict[str, int] = {}
         self.wss_accounts: Dict[str, str] = {}
 
-    def register(self, callback: Awaitable):
+    def register(self, callback: Awaitable) -> None:
         """Register an event"""
         event = to_camel_case(callback.__name__)
         if event not in self.events:
             self.events[event] = callback
 
-    async def handle_event(self, wss, data):
+    async def handle_event(self, wss, data) -> str:
         """Handles an event"""
         try:
             event = data['event']
@@ -179,7 +170,7 @@ Args:
                 break
 
 
-def setup_mongo(mongodb_username: str, mongodb_password: str) -> None:
+def setup_mongo(mongodb_username: str, mongodb_password: str) -> Database:
     """Sets up the mongo database for production servers.
 
     Args:
