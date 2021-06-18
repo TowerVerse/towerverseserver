@@ -13,6 +13,7 @@ from dataclasses import dataclass
 @dataclass(frozen=True)
 class Traveller():
     """The base `Traveller` instance. """
+    
     traveller_id: int
     traveller_name: str
     traveller_email: str
@@ -21,6 +22,7 @@ class Traveller():
 @dataclass(frozen=True)
 class Tower():
     """The base `Tower` instance. """
+    
     tower_id: str
     tower_name: str
     tower_creator: int

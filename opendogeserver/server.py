@@ -23,6 +23,9 @@ from time import time
 """ Generating unique IDs. """
 from uuid import uuid4
 
+""" Better way for using classes. """
+from dataclasses import dataclass, field
+
 """ 3RD-PARTY MODULES """
 
 """ The main way of communicating. """
@@ -31,6 +34,7 @@ from websockets.client import WebSocketClientProtocol
 
 """ Production server MongoDB. """
 from pymongo import MongoClient
+from pymongo.database import Database
 from pymongo.errors import OperationFailure
 
 """ LOCAL MODULES """
@@ -38,15 +42,22 @@ from opendogeserver.utilities import *
 from opendogeserver.constants import *
 from opendogeserver.classes import *
 
+@dataclass(frozen=False, eq=False)
 class Server():
     """The `Server` class handles all requests/responses."""
 
-    def __init__(self, mdb):
-        self.mdb = mdb
-        self.events: Dict[str, function] = {}
-        self.total_requests = 0
-        self.ip_requests: Dict[str, int] = {}
-        self.wss_accounts: Dict[str, str] = {}
+    """ The Mongo Database. """
+    mdb: Database = None
+    
+    """ The registered events to callback. """
+    events: Dict[str, function] = field(default_factory=dict)
+    
+    """ Telemetry. """
+    total_requests = 0
+    ip_requests: Dict[str, int] = field(default_factory=dict)
+    
+    """ Linking IPs to accounts. """
+    wss_accounts: Dict[str, str] = field(default_factory=dict)
 
     def register(self, callback: Awaitable) -> None:
         """Register an event"""
