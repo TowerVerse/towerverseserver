@@ -2,6 +2,7 @@ from string import ascii_uppercase
 from typing import List
 from json import dumps
 
+
 def to_snake_case(target: str, is_argument: bool = False) -> str:
     """Transforms a python string to a function/argument name.
 
@@ -23,6 +24,7 @@ def to_snake_case(target: str, is_argument: bool = False) -> str:
 
     return f"event_{result}" if not is_argument else result
 
+
 def to_camel_case(target: str) -> str:
     """Transforms a previously-modified-by-transform_to_call argument to its original state.
 
@@ -40,6 +42,7 @@ def to_camel_case(target: str) -> str:
             target_list[index] = target_list[index].upper()
 
     return ''.join([letter for letter in target_list])
+
 
 def check_loop_data(data: dict, keys: List[str]):
     """Checks if a number of keys are present in a dictionary.
@@ -70,7 +73,8 @@ def check_loop_data(data: dict, keys: List[str]):
         return f'Data must contain {" and ".join([key for key in keys_needed])}.'
     return None
 
-def format_res(event_name: str, ref: str, event_reply: str = 'Reply',**kwargs) -> str:
+
+def format_res(event_name: str, ref: str, event_reply: str = 'Reply', **kwargs) -> str:
     """Formats a response to be sent in an appropriate form, with optional keyword arguments.
 
     Args:
@@ -80,12 +84,14 @@ def format_res(event_name: str, ref: str, event_reply: str = 'Reply',**kwargs) -
     Returns:
         dict: The formatted response.
     """
-    result_data = dict(data=kwargs, event=f'{event_name}{event_reply}', originalEvent=event_name)
+    result_data = dict(
+        data=kwargs, event=f'{event_name}{event_reply}', originalEvent=event_name)
 
     if ref:
         result_data['ref'] = ref
 
     return dumps(result_data)
+
 
 def format_res_err(event_name: str, event_reply: str, error_message: str, ref: str, is_no_event_response: bool = False, **kwargs) -> str:
     """Same as above but for errors.
@@ -102,7 +108,7 @@ def format_res_err(event_name: str, event_reply: str, error_message: str, ref: s
     """
 
     result_data = dict(data={'errorMessage': error_message, **kwargs}, event=f'{event_name}{event_reply}' if not is_no_event_response else f'{event_reply}',
-                        originalEvent=event_name)
+                       originalEvent=event_name)
 
     if ref:
         result_data['ref'] = ref
