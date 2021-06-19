@@ -480,17 +480,17 @@ def event_login_traveller(event: str, traveller_email: str, traveller_password: 
     if len(traveller_id) == 0:
         return format_res_err(event, 'NotFound', 'The specified traveller could not be found.')
 
-    """ Check if the requestee is already logged into an account. """
-    if check_account(wss.remote_address[0]):
-        return format_res_err(event, 'AlreadyLoggedIn', 'You are currently logged in. Logout and try again.')
-
-    """ Check if someone has already logged into this account. """
-    for key, item in wss_accounts.items():
-        if item == traveller_id:
-            return format_res_err(event, 'AccountTaken', 'Another user has already logged into this account.')
-
     if checkpw(bytes(traveller_password, encoding='ascii'), travellers[traveller_id].traveller_password if IS_LOCAL
-                                                            else get_users()[traveller_id]['travellerPassword']):
+                                                        else get_users()[traveller_id]['travellerPassword']):
+        """ Check if someone has already logged into this account. """
+        for key, item in wss_accounts.items():
+            if item == traveller_id:
+                return format_res_err(event, 'AccountTaken', 'Another user has already logged into this account.')
+        
+        """ Check if the requestee is already logged into an account. """
+        if check_account(wss.remote_address[0]):
+            return format_res_err(event, 'AlreadyLoggedIn', 'You are currently logged in. Logout and try again.')
+    
         """ Link the IP to an account. """
         wss_accounts[wss.remote_address[0]] = traveller_id
 
