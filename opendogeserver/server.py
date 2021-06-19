@@ -857,9 +857,9 @@ if __name__ == '__main__':
                 setup_mongo(environ['OPENDOGE_MONGODB_USERNAME'], environ['OPENDOGE_MONGODB_PASSWORD'])
 
     """ Heroku expects us to bind on a specific port, if deployed locally we can bind anywhere. """
-    port = environ.get('PORT', 6000)
+    port = environ.get('PORT', 5000)
 
-    start_server = ws_serve(serve, '0.0.0.0', port)
+    start_server = ws_serve(serve, '127.0.0.1', port)
 
     """ Dynamically find and start server tasks. """
     registered_tasks = [task for task_name, task in globals().items() if task_name.startswith('task_')]
