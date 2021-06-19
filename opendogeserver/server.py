@@ -23,7 +23,7 @@ from typing import Dict, List
 
 """ Generating account IDs. """
 from random import choice
-from string import digits, ascii_letters, ascii_uppercase
+from string import digits, ascii_letters, ascii_uppercase, punctuation
 
 """ Inspect functions. """
 from inspect import getfullargspec
@@ -98,8 +98,13 @@ IP_REQUESTS_CLEANUP_INTERVAL = 60 * 60
 IP_ACCOUNT_CLEANUP_INTERVAL = 60 * 60 * 24
 
 """ Account-related. """
+ACCOUNT_CHARACTERS = f'{ascii_letters}{digits}!^&* '
 MIN_ACCOUNT_NAME = 3
 MAX_ACCOUNT_NAME = 20
+
+EMAIL_CHARACTERS = f'{ascii_letters}{digits}@.'
+
+PASSWORD_CHARACTERS = f'{ascii_letters}{digits}{punctuation}'
 MIN_PASS_LENGTH = 8
 MAX_PASS_LENGTH = 20
 
@@ -297,7 +302,9 @@ def event_create_traveller(event: str, traveller_name: str, traveller_email: str
         createTravellerNameExceedsLimit: The provided name exceeds the current name length limitations.
         createTravellerPasswordExceedsLimit: The provided password exceeds the current password length limitations.
         createTravellerAlreadyLoggedIn: The IP is already logged in to another account.
-        createTravellerMaxAccouns: The IP has created the maximum amount of accounts available.
+        createTravellerNameBadFormat: The name of the account contains invalid characters.
+        createTravellerEmailBadFormat: The email of the account contains invalid characters.
+        createTravellerPasswordBadFormat: The password of the account contains invalid characters.
     """
 
     if check_account(wss.remote_address[0]):
@@ -316,6 +323,19 @@ def event_create_traveller(event: str, traveller_name: str, traveller_email: str
     if not len(traveller_password.strip()) >= MIN_PASS_LENGTH or not len(traveller_password.strip()) <= MAX_PASS_LENGTH:
         return format_res_err(event, 'PasswordExceedsLimit', f'Traveller password must be between {MIN_PASS_LENGTH} and {MAX_PASS_LENGTH} characters.')
 
+    """ Character checks. """
+    for letter in traveller_name:
+        if letter not in ACCOUNT_CHARACTERS:
+            return format_res_err(event, 'NameBadFormat', f'The name of the account contains invalid characters.')
+    
+    for letter in traveller_email:
+        if letter not in EMAIL_CHARACTERS:
+            return format_res_err(event, 'EmailBadFormat', f'The email of the account contains invalid characters.')
+        
+    for letter in traveller_password:
+        if letter not in PASSWORD_CHARACTERS:
+            return format_res_err(event, 'PasswordBadFormat', f'The password of the account contains invalid characters.')
+    
     """ Prevent duplicate emails. """
     is_email_taken = False
 
@@ -366,6 +386,8 @@ def event_login_traveller(event: str, traveller_email: str, traveller_password: 
         loginTravellerAlreadyLoggedIn: The requestee is already logged into an account.
         loginTravellerAccountTaken: The target account is already taken by another IP.
         loginTravellerPasswordExceedsLimit: The provided password exceeds current password length limitations.
+        loginTravellerEmailBadFormat: The email of the account contains invalid characters.
+        loginTravellerPasswordBadFormat: The password of the account contains invalid characters.
     """
 
     """ Validate the email, check if it has @ and a valid domain. """
@@ -378,6 +400,14 @@ def event_login_traveller(event: str, traveller_email: str, traveller_password: 
     if not len(traveller_password.strip()) >= MIN_PASS_LENGTH or not len(traveller_password.strip()) <= MAX_PASS_LENGTH:
         return format_res_err(event, 'PasswordExceedsLimit', f'Traveller password must be between {MIN_PASS_LENGTH} and {MAX_PASS_LENGTH} characters.')
 
+    for letter in traveller_email:
+        if letter not in EMAIL_CHARACTERS:
+            return format_res_err(event, 'EmailBadFormat', f'The email of the account contains invalid characters.')
+        
+    for letter in traveller_password:
+        if letter not in PASSWORD_CHARACTERS:
+            return format_res_err(event, 'PasswordBadFormat', f'The password of the account contains invalid characters.')
+        
     """ Determine which id the email is associated with. """
     traveller_id = ''
 
