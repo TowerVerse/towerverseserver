@@ -40,7 +40,7 @@
 
 **The server will run on a designated port (5000 by default) at localhost.**
 
-**Note: Passing --tests means no database will be used. Otherwise set the environmental variables OPENDOGE_MONGODB_USERNAME and OPENDOGE_MONGODB_PASSWORD to the ones the OpenDoge owner has given you.**
+**Note: Passing --local means no database will be used. Otherwise set the environmental variables OPENDOGE_MONGODB_USERNAME and OPENDOGE_MONGODB_PASSWORD to the ones the OpenDoge owner has given you.**
 
 ## Hosting online
 
