@@ -23,7 +23,7 @@ from typing import Dict, List
 
 """ Generating account IDs. """
 from random import choice
-from string import digits, ascii_letters, ascii_uppercase, punctuation
+from string import digits, ascii_letters, ascii_uppercase
 
 """ Inspect functions. """
 from inspect import getfullargspec
@@ -104,13 +104,13 @@ IP_ACCOUNT_CLEANUP_INTERVAL = 60 * 60 * 24 # every day
 TEMP_ACCOUNT_CLEANUP_INTERVAL = 60 * 60 * 24 * 7 # every week
 
 """ Account-related. """
-ACCOUNT_CHARACTERS = f'{ascii_letters}{digits}!^&* '
+ACCOUNT_CHARACTERS = f'{ascii_letters}{digits}!^* '
 MIN_ACCOUNT_NAME = 3
 MAX_ACCOUNT_NAME = 20
 
 EMAIL_CHARACTERS = f'{ascii_letters}{digits}@.'
 
-PASSWORD_CHARACTERS = f'{ascii_letters}{digits}{punctuation}'
+PASSWORD_CHARACTERS = f'{ascii_letters}{digits}.!#[]\\^_'
 MIN_PASS_LENGTH = 8
 MAX_PASS_LENGTH = 20
 
