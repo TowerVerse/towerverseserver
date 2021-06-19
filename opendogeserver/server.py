@@ -37,8 +37,8 @@ from time import time
 """ Generating account hashes. """
 from uuid import uuid4
 
-""" Getting command-line arguments. """
-from sys import argv
+""" Getting command-line arguments and tracebacks. """
+from sys import argv, exc_info
 
 """ 3RD-PARTY MODULES """
 
@@ -536,12 +536,12 @@ async def request_switcher(wss: WebSocketClientProtocol, data: dict):
 
             """ Create bug report. """
             if IS_LOCAL:
-                print(e)
+                print(exc_info()[0])
             else:
                 try:
-                    mdb.users.insert_one({f'bug{str(uuid4())}', str(e)})
+                    mdb.logs.insert_one({f'bug-{str(uuid4())}', exc_info()[0]})
                 except:
-                    print(f'FATAL DATABASE ERROR EXITING: \n{str(e)}')
+                    print(f'FATAL DATABASE ERROR EXITING: \n{exc_info()[0]}')
                     exit()
 
             return format_res_err(event, 'EventUnknownError', 'Unknown internal server error.', True)
