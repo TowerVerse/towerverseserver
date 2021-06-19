@@ -105,14 +105,16 @@ TEMP_ACCOUNT_CLEANUP_INTERVAL = 60 * 60 * 24 * 7 # every week
 
 """ Account-related. """
 ACCOUNT_CHARACTERS = f'{ascii_letters}{digits}!^* '
-MIN_ACCOUNT_NAME = 3
-MAX_ACCOUNT_NAME = 20
+MIN_ACCOUNT_LENGTH = 3
+MAX_ACCOUNT_LENGTH = 20
 
 EMAIL_CHARACTERS = f'{ascii_letters}{digits}@.'
+MIN_EMAIL_LENGTH = 10
+MAX_EMAIL_LENGTH = 60
 
 PASSWORD_CHARACTERS = f'{ascii_letters}{digits}.!#[]\\^_'
 MIN_PASS_LENGTH = 8
-MAX_PASS_LENGTH = 20
+MAX_PASS_LENGTH = 30
 
 """ Accounts linked to IPs. """
 wss_accounts: Dict[str, str] = {}
@@ -343,6 +345,7 @@ def event_create_traveller(event: str, traveller_name: str, traveller_email: str
         createTravellerEmailInvalid: The provided email is not formatted correctly.
         createTravellerEmailInUse: The provided email is already in use.
         createTravellerNameExceedsLimit: The provided name exceeds the current name length limitations.
+        createTravellerEmailExceedsLimit: The provided name exceeds the current email length limitations.
         createTravellerPasswordExceedsLimit: The provided password exceeds the current password length limitations.
         createTravellerAlreadyLoggedIn: The IP is already logged in to another account.
         createTravellerNameBadFormat: The name of the account contains invalid characters.
@@ -353,18 +356,24 @@ def event_create_traveller(event: str, traveller_name: str, traveller_email: str
     if check_account(wss.remote_address[0]):
             return format_res_err(event, 'AlreadyLoggedIn', 'You are currently logged in. Logout and try again.')
 
-    """ Remember to keep the strip methods, we need the original name. """
-    if not len(traveller_name.strip()) >= MIN_ACCOUNT_NAME or not len(traveller_name.strip()) <= MAX_ACCOUNT_NAME:
-        return format_res_err(event, 'NameExceedsLimit', f'Traveller name must be between {MIN_ACCOUNT_NAME} and {MAX_ACCOUNT_NAME} characters long.')
+    """ Remember to keep the strip methods, we need the original traveller name. """
+    if not len(traveller_name.strip()) >= MIN_ACCOUNT_LENGTH or not len(traveller_name.strip()) <= MAX_ACCOUNT_LENGTH:
+        return format_res_err(event, 'NameExceedsLimit', f'Traveller name must be between {MIN_ACCOUNT_LENGTH} and {MAX_ACCOUNT_LENGTH} characters long.')
 
-    """ Validate the email, check if it has @ and a valid domain. """
+    """ Validate the email, check if it has @ and a valid domain. Also check its length. We need the stripped down version. """
+    traveller_email = traveller_email.strip()
+    if not len(traveller_email) >= MIN_EMAIL_LENGTH or not len(traveller_email) <= MAX_EMAIL_LENGTH:
+        return format_res_err(event, 'EmailExceedsLimit', f'Traveller email must be between {MIN_EMAIL_LENGTH} and {MAX_EMAIL_LENGTH} characters long.')
+    
     try:
         validate_email(traveller_email)
     except EmailNotValidError as e:
         return format_res_err(event, 'EmailInvalid', str(e))
 
-    if not len(traveller_password.strip()) >= MIN_PASS_LENGTH or not len(traveller_password.strip()) <= MAX_PASS_LENGTH:
-        return format_res_err(event, 'PasswordExceedsLimit', f'Traveller password must be between {MIN_PASS_LENGTH} and {MAX_PASS_LENGTH} characters.')
+    """ We need the stripped down version here aswell. """
+    traveller_password = traveller_password.strip()
+    if not len(traveller_password) >= MIN_PASS_LENGTH or not len(traveller_password) <= MAX_PASS_LENGTH:
+        return format_res_err(event, 'PasswordExceedsLimit', f'Traveller password must be between {MIN_PASS_LENGTH} and {MAX_PASS_LENGTH} characters long.')
 
     """ Character checks. """
     for letter in traveller_name:
