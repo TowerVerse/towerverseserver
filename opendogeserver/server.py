@@ -59,6 +59,9 @@ from pymongo import MongoClient
 from pymongo.database import Database
 from pymongo.errors import OperationFailure
 
+""" Email verification and more. """
+from aioyagmail import SMTP
+
 """ LOCAL MODULES """
 
 from opendogeserver.classes import *
@@ -92,10 +95,13 @@ IP_RATELIMIT_MAX = 10
 IP_RATELIMIT_CLEANUP_INTERVAL = 5
 
 """ Seconds between resetting IP requests. """
-IP_REQUESTS_CLEANUP_INTERVAL = 60 * 60
+IP_REQUESTS_CLEANUP_INTERVAL = 60 * 60 # every minute
 
 """ Seconds between resetting IP account links. """
-IP_ACCOUNT_CLEANUP_INTERVAL = 60 * 60 * 24
+IP_ACCOUNT_CLEANUP_INTERVAL = 60 * 60 * 24 # every day
+
+""" Seconds between resetting accounts which aren't verified. """
+TEMP_ACCOUNT_CLEANUP_INTERVAL = 60 * 60 * 24 * 7 # every week
 
 """ Account-related. """
 ACCOUNT_CHARACTERS = f'{ascii_letters}{digits}!^&* '
@@ -111,10 +117,16 @@ MAX_PASS_LENGTH = 20
 """ Accounts linked to IPs. """
 wss_accounts: Dict[str, str] = {}
 
+""" Accounts to create when verified. """
+accounts_to_create: Dict[str, TempTraveller] = {}
+
 """ Whether or not this is a locally-hosted server. """
 IS_LOCAL = '--local' in argv
 
-""" MongoDB-related, mdbclient and mdb are filled in at setup_mongo_credentials. """
+""" Used to facilitate, do not use this for prod/testing dev. Rather, use it with pytest. """
+IS_TEST = '--test' in argv
+
+""" MongoDB-related, mdbclient and mdb are filled in at setup_mongo. """
 mongo_project_name = 'opendoge'
 mongo_database_name = 'opendoge-db'
 mongo_client_extra_args = 'retryWrites=true&w=majority'
@@ -123,6 +135,9 @@ mdb: Database = None
 
 """ Passed reference to facilitate wrapper-fetching. """
 current_ref: str = None
+
+""" Email-related, filled in at setup_email. """
+email_smtp: SMTP = None
 
 """ Utilities """
 
@@ -252,7 +267,7 @@ def gen_id() -> str:
     result_id = ''
 
     for i in range(15):
-        result_id += str(choice(f"{ascii_letters}{digits}"))
+        result_id += str(choice(f'{ascii_letters}{digits}'))
 
     return result_id
 
@@ -283,16 +298,44 @@ def get_users() -> dict:
 
     return result_users
 
+def gen_verification_code() -> str:
+    """Generates a verification code to be provided in order to create a traveller account.
+
+    Returns:
+        str: The verification code.
+    """
+    
+    verification_code = ''
+    
+    for i in range(20):
+        verification_code += str(choice(f'{ascii_letters}{digits}'))
+
+    return verification_code
+
+async def send_email(to: str, title: str, content: List[str]) -> None:
+    """Sends an email, asynchronously.
+
+    Args:
+        to (str): The recipient of the email.
+        title (str): The title of the email.
+        content (List[str]): The content of the email. 1: Body, 2: Custom html, 3: An image.
+    """    
+    try:
+        validate_email(to)
+    except EmailNotValidError as e:
+        print(f'Invalid email provided to send_email, aborting operation: {e}')
+        
+    email_smtp.send(to, title, content)
+
 """ Events """
 
 def event_create_traveller(event: str, traveller_name: str, traveller_email: str, traveller_password: str, wss: WebSocketServerProtocol):
-    """Creates a new traveller account.
+    """Schedules an account for creation, after it's verified with verifyTraveller.
 
     Args:
         traveller_name (str): The name of the traveller.
         traveller_email (str): The email of the traveller.
         traveller_password (str): The password of the traveller.
-        wss (WebSocketClientProtocol): The websocket client.
 
     Possible Responses:
         createTravellerReply: The websocket has successfully created a traveller. No additional hashes have to be passed for future account-related methods.
@@ -339,6 +382,7 @@ def event_create_traveller(event: str, traveller_name: str, traveller_email: str
     """ Prevent duplicate emails. """
     is_email_taken = False
 
+    """ Check in both db and local variables. """
     if IS_LOCAL:
         for key, item in travellers.items():
             if item.traveller_email == traveller_email:
@@ -350,23 +394,28 @@ def event_create_traveller(event: str, traveller_name: str, traveller_email: str
                 is_email_taken = True
                 break
 
+    """ Also check in travellers which are awaiting authentication. """
+    for key, item in accounts_to_create.items():
+        if item.traveller_email == traveller_email:
+            is_email_taken = True
+            break
+
     if is_email_taken:
         return format_res_err(event, 'EmailInUse', 'This email is already in use by another account.')
 
     """ Visible by fetchTravellers and its not at all private. """
-    traveller_id = gen_id()
+    traveller_id = gen_id() if not IS_TEST else '123'
 
     """ rounds=13 so as to exceed the 214ms bare limit according to: https://security.stackexchange.com/questions/3959/recommended-of-iterations-when-using-pkbdf2-sha256. """
     hashed_password = hashpw(bytes(traveller_password, encoding='ascii'), gensalt(rounds=13))
 
-    if IS_LOCAL:
-        travellers[traveller_id] = Traveller(traveller_id, traveller_name, traveller_email, hashed_password)
-    else:
-        mdb.users.insert_one({traveller_id: {'travellerName': traveller_name, 'travellerEmail': traveller_email,
-                                            'travellerPassword': hashed_password}})
+    """ Add the account to a temporary dictionary until it's verified. Also generate the target verification code. """
+    traveller_verification = gen_verification_code()
+    accounts_to_create[traveller_id] = TempTraveller(traveller_id, traveller_name, traveller_email, hashed_password, traveller_verification)
 
-        """ Update registered emails and accounts links. """
-    wss_accounts[wss.remote_address[0]] = traveller_id
+    """ Send email verification code, doesn't need to block. Don't do this for tests. """
+    if not IS_TEST:
+        loop.create_task(send_email(traveller_email, 'GateVerse verification code', [f'This is your email verification code: {traveller_verification}']))
 
     return format_res(event, travellerId=traveller_id)
 
@@ -376,7 +425,6 @@ def event_login_traveller(event: str, traveller_email: str, traveller_password: 
     Args:
         traveller_email (str): The traveller account's email to login to.
         traveller_password (str): The traveller account's password to check against.
-        wss (WebSocketClientProtocol): The websocket client.
 
     Possible Responses:
         loginTravellerReply: The websocket has successfully connected to a traveller. No additional keys have to be passed for future account-related methods.
@@ -443,9 +491,6 @@ def event_login_traveller(event: str, traveller_email: str, traveller_password: 
 
 def event_logout_traveller(event: str, wss: WebSocketClientProtocol):
     """Logs out a user from his associated traveller, if any. 
-        
-    Args:
-        wss (WebSocketClientProtocol): The websocket client.
 
     Possible Responses:
         logoutTravellerReply: The IP has successfully logged out of the associated account.
@@ -505,6 +550,52 @@ def event_online_travellers(event: str):
         onlineTravellersReply: The number of online travellers at the moment.
     """
     return format_res(event, onlineTravellers=len(wss_accounts))
+
+def event_verify_traveller(event: str, traveller_id: str, traveller_code: str, wss: WebSocketServerProtocol):
+    """Verifies a traveller account, if present and the code is correct.
+
+    Args:
+        traveller_id (str): The traveller id of whom to verify the email.
+        traveller_code (str): The traveller verification code.
+
+    Possible Responses:
+        verifyTravellerReply: The email of the traveller has been successfully verified.
+        
+        verifyTravellerNotFound: The specified traveller could not be found.
+        verifyTravellerInvalidCode: The provided code is invalid.
+    """
+    
+    """ Verify to pass test. """
+    if IS_TEST:
+        target_acc = accounts_to_create[traveller_id]
+        
+        travellers[traveller_id] = Traveller(target_acc.traveller_id, target_acc.traveller_name, target_acc.traveller_email, target_acc.traveller_password)
+        
+        wss_accounts[wss.remote_address[0]] = traveller_id  
+        
+        return format_res(event, travellerId=traveller_id)
+    
+    if traveller_id not in accounts_to_create:
+        return format_res_err(event, 'NotFound', 'The specified traveller account could not be found.')
+
+    if accounts_to_create[traveller_id].traveller_code == traveller_code:
+        
+        target_acc = accounts_to_create[traveller_id]
+        
+        """ Actually create the account here and link. """
+        if IS_LOCAL:
+            travellers[traveller_id] = Traveller(target_acc.traveller_id, target_acc.traveller_name, target_acc.traveller_email, target_acc.traveller_password)
+        else:
+            mdb.users.insert_one({traveller_id: {'travellerName': target_acc.traveller_name, 'travellerEmail': target_acc.traveller_email,
+                                            'travellerPassword': target_acc.traveller_password}})
+        
+        wss_accounts[wss.remote_address[0]] = traveller_id    
+        
+        """ Remove the created account from the temp list. """
+        del accounts_to_create[traveller_id]
+        
+        return format_res(event, travellerId=traveller_id)
+    return format_res_err(event, 'InvalidCode', 'The provided code is invalid.')
 
 """ Main """
 
@@ -566,12 +657,12 @@ async def request_switcher(wss: WebSocketClientProtocol, data: dict):
 
             """ Create bug report. """
             if IS_LOCAL:
-                print(exc_info()[0])
+                print(str(exc_info()))
             else:
                 try:
-                    mdb.logs.insert_one({f'bug-{str(uuid4())}', exc_info()[0]})
+                    mdb.logs.insert_one({f'bug-{str(uuid4())}': str(exc_info())})
                 except:
-                    print(f'FATAL DATABASE ERROR EXITING: \n{exc_info()[0]}')
+                    print(f'FATAL DATABASE ERROR EXITING: \n{str(exc_info())}')
                     exit()
 
             return format_res_err(event, 'EventUnknownError', 'Unknown internal server error.', True)
@@ -690,6 +781,23 @@ def setup_mongo(mongodb_username: str, mongodb_password: str) -> None:
         print('Invalid username or password provided for MongoDB, exiting.')
         exit()
 
+def setup_email(email: str, password: str) -> None:
+    """Sets up the account to use when sending emails.
+
+    Args:
+        email (str): The target email.
+        password (str): The email's password.
+    """
+    try:
+        validate_email(email)
+    except EmailNotValidError as e:
+        print(f'Error in setup_email, exiting: {e}')
+        exit()
+
+    global email_smtp
+    email_smtp = SMTP(email, password)
+    print(f'Successfully setup email account.')
+
 """ Tasks """
 
 async def task_cleanup_ip_ratelimits() -> None:
@@ -715,12 +823,33 @@ async def task_cleanup_account_links() -> None:
         wss_accounts.clear()
         await asyncio.sleep(IP_ACCOUNT_CLEANUP_INTERVAL)
 
-if __name__ == '__main__':
-    print(f"Server type: {'PRODUCTION' if not IS_LOCAL else 'LOCAL'}")
+async def task_cleanup_temp_accounts() -> None:
+    """ Deletes accounts which have not been verified. """
+    
+    while True:
+        accounts_to_create.clear()
+        await asyncio.sleep(TEMP_ACCOUNT_CLEANUP_INTERVAL)
 
+if __name__ == '__main__':
+    server_type = 'PRODUCTION'
+    
+    if IS_LOCAL:
+        server_type = 'LOCAL'
+    
+    if IS_TEST:
+        server_type = 'TEST'
+        
+    print(f'Server type: {server_type}')
+
+    if not 'OPENDOGE_EMAIL_NAME' in environ or not 'OPENDOGE_EMAIL_PASSWORD' in environ:
+        print('Environmental variables OPENDOGE_EMAIL_NAME and OPENDOGE_EMAIL_PASSWORD must be set in order for email capabilities to function, exiting.')
+        exit()
+    else:
+        setup_email(environ['OPENDOGE_EMAIL_NAME'], environ['OPENDOGE_EMAIL_PASSWORD'])
+        
     """ Setup MongoDB. """
     if not IS_LOCAL:
-        if not 'OPENDOGE_MONGODB_USERNAME' in environ and not 'OPENDOGE_MONGODB_PASSWORD' in environ:
+        if not 'OPENDOGE_MONGODB_USERNAME' in environ or not 'OPENDOGE_MONGODB_PASSWORD' in environ:
             print('MongoDB variables must either be passed to the start function or set to the environmental variables: OPENDOGE_MONGODB_USERNAME, OPENDOGE_MONGODB_PASSWORD for the production server to function!')
             exit()
         else:

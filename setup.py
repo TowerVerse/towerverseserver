@@ -9,7 +9,7 @@ setup(
     python_requires = '>=3.7.0',
     url = 'https://github.com/OpenDoge/opendogeserver',
     packages = ['opendogeserver'],
-    install_requires = ['websockets==9.1', 'email_validator==1.1.3', 'bcrypt==3.2.0', 'pymongo==3.11.4'],
+    install_requires = ['websockets==9.1', 'email_validator==1.1.3', 'bcrypt==3.2.0', 'pymongo==3.11.4', 'aioyagmail==0.0.4'],
     extras_require = {'tests':
                         ['pytest==6.2.4', 'pytest-asyncio==0.15.1', 'pytest-ordering==0.6']
                     },

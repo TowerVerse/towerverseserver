@@ -15,6 +15,6 @@ jobs:
       - run: |
           pip install .
           pip install .[tests]
-          python3 opendogeserver/server.py --local &
+          python3 opendogeserver/server.py --local --test &
           pytest opendogeserver/tests
           kill $!
