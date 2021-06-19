@@ -30,17 +30,43 @@ from opendogeserver.constants import MAX_ACCOUNT_NAME, MIN_ACCOUNT_NAME, MAX_PAS
 class AccountHandler():
     """The `AccountHandler` class contains functions related to account responses. """
 
+    """ Events """
+
     def event_total_travellers(self, event: str):
         """Get the total number of travellers"""
         # TODO: Return total travellers
-        return format_res('totalTravellers', ref=Server.current_ref, totalTravellers=len(Server.travellers) if Server.IS_LOCAL else len(self.get_users()))
+        return format_res(event, ref=Server.current_ref, totalTravellers=len(Server.travellers) if Server.IS_LOCAL else len(self.get_users()))
 
     def event_fetch_travellers(self, event: str):
         """List all traveller ids"""
         # TODO: Return traveller ids
-        return format_res('fetchTravellers',ref=Server.current_ref, travellerIds=[id for id in Server.travellers] if Server.IS_LOCAL else [id for id in self.get_users()])
+        return format_res(event, ref=Server.current_ref, travellerIds=[id for id in Server.travellers] if Server.IS_LOCAL else [id for id in self.get_users()])
 
-    def event_online_travellers(self, event: str) -> str:
+    def event_fetch_traveller(self, event: str, traveller_id: str):
+        """Fetches a traveller's info, if he exists in the database.
+
+        Args:
+            traveller_id (str): The id of the traveller to fetch info from.
+
+        Possible Responses:
+            fetchTravellerReply: Info about a traveller has been successfully fetched.
+
+            fetchTravellerNotFound: The traveller with the required ID could not be found.
+        """
+        traveller_name = ''
+
+        if Server.IS_LOCAL:
+            if traveller_id in Server.travellers:
+                traveller_name = Server.travellers[traveller_id].traveller_name
+        else:
+            if traveller_id in self.get_users():
+                traveller_name = self.get_users()[traveller_id]['travellerName']
+
+        if traveller_name:
+            return format_res(event, Server.current_ref, travellerName=traveller_name, travellerId=traveller_id)
+        return format_res_err(event, 'NotFound', f'Traveller with id {traveller_id} not found.')
+    
+    def event_online_travellers(self, event: str):
         """Returns the number of online travellers.
 
         Possible Responses:
@@ -48,7 +74,7 @@ class AccountHandler():
         """
         return format_res(event, ref=Server.current_ref, onlineTravellers=len(Server.wss_accounts))
 
-    def event_create_traveller(self, event: str, traveller_name: str, traveller_email: str, traveller_password: str, wss: WebSocketClientProtocol) -> str:
+    def event_create_traveller(self, event: str, traveller_name: str, traveller_email: str, traveller_password: str, wss: WebSocketClientProtocol):
         """Creates a new traveller account.
 
         Args:
@@ -69,20 +95,20 @@ class AccountHandler():
         """
 
         if self.check_account(wss.remote_address[0]):
-            return format_res_err(event, 'AlreadyLoggedIn', Server.current_ref, 'You are currently logged in. Logout and try again.', )
+            return format_res_err(event, 'AlreadyLoggedIn', 'You are currently logged in. Logout and try again.', ref=Server.current_ref)
 
         """ Remember to keep the strip methods, we need the original name. """
         if not len(traveller_name.strip()) >= MIN_ACCOUNT_NAME or not len(traveller_name.strip()) <= MAX_ACCOUNT_NAME:
-            return format_res_err(event, 'NameExceedsLimit', Server.current_ref, f'Traveller name must be between {MIN_ACCOUNT_NAME} and {MAX_ACCOUNT_NAME} characters long.')
+            return format_res_err(event, 'NameExceedsLimit', f'Traveller name must be between {MIN_ACCOUNT_NAME} and {MAX_ACCOUNT_NAME} characters long.', ref=Server.current_ref)
 
         """ Validate the email, check if it has @ and a valid domain. """
         try:
             validate_email(traveller_email)
         except EmailNotValidError as e:
-            return format_res_err(event, 'EmailInvalid', str(e))
+            return format_res_err(event, 'EmailInvalid', str(e), ref=Server.current_ref)
 
         if not len(traveller_password.strip()) >= MIN_PASS_LENGTH or not len(traveller_password.strip()) <= MAX_PASS_LENGTH:
-            return format_res_err(event, 'PasswordExceedsLimit', f'Traveller password must be between {MIN_PASS_LENGTH} and {MAX_PASS_LENGTH} characters.')
+            return format_res_err(event, 'PasswordExceedsLimit', f'Traveller password must be between {MIN_PASS_LENGTH} and {MAX_PASS_LENGTH} characters.', ref=Server.current_ref)
 
         """ Prevent duplicate emails. """
         is_email_taken = False
@@ -99,7 +125,7 @@ class AccountHandler():
                     break
 
         if is_email_taken:
-            return format_res_err(event, 'EmailInUse', Server.current_ref, 'This email is already in use by another account.')
+            return format_res_err(event, 'EmailInUse', 'This email is already in use by another account.', ref=Server.current_ref)
 
         """ Visible by fetchTravellers and its not at all private. """
         traveller_id = self.gen_id()
@@ -111,15 +137,15 @@ class AccountHandler():
         if Server.IS_LOCAL:
             Server.travellers[traveller_id] = Server.Traveller(traveller_id, traveller_name, traveller_email, hashed_password)
         else:
-            self.server.mdb.users.insert_one({traveller_id: {'travellerName': traveller_name, 'travellerEmail': traveller_email,
+            Server.mdb.users.insert_one({traveller_id: {'travellerName': traveller_name, 'travellerEmail': traveller_email,
                                                                 'travellerPassword': hashed_password}})
 
             """ Update registered emails and accounts links. """
-        self.server.wss_accounts[wss.remote_address[0]] = traveller_id
+        Server.wss_accounts[wss.remote_address[0]] = traveller_id
 
         return format_res(event, ref=Server.current_ref, travellerId=traveller_id)
 
-    def event_login_traveller(self, event: str, traveller_email: str, traveller_password: str, wss: WebSocketClientProtocol) -> str:
+    def event_login_traveller(self, event: str, traveller_email: str, traveller_password: str, wss: WebSocketClientProtocol):
         """Logs in a websocket connection to a traveller account.
 
         Args:
@@ -141,11 +167,11 @@ class AccountHandler():
         try:
             validate_email(traveller_email)
         except EmailNotValidError as e:
-            return format_res_err(event, 'EmailInvalid', Server.current_ref, str(e))
+            return format_res_err(event, 'EmailInvalid', str(e), ref=Server.current_ref)
 
         """ Check password validity. """
         if not len(traveller_password.strip()) >= MIN_PASS_LENGTH or not len(traveller_password.strip()) <= MAX_PASS_LENGTH:
-            return format_res_err(event, 'PasswordExceedsLimit', Server.current_ref, f'Traveller password must be between {MIN_PASS_LENGTH} and {MAX_PASS_LENGTH} characters.')
+            return format_res_err(event, 'PasswordExceedsLimit', f'Traveller password must be between {MIN_PASS_LENGTH} and {MAX_PASS_LENGTH} characters.', ref=Server.current_ref)
 
         """ Determine which id the email is associated with. """
         traveller_id = ''
@@ -160,27 +186,27 @@ class AccountHandler():
                     traveller_id = key
 
         if len(traveller_id) == 0:
-            return format_res_err(event, 'NotFound', Server.current_ref, 'The specified traveller could not be found.')
+            return format_res_err(event, 'NotFound', 'The specified traveller could not be found.', ref=Server.current_ref)
 
         """ Check if the requestee is already logged into an account. """
         if self.check_account(wss.remote_address[0]):
-            return format_res_err(event, 'AlreadyLoggedIn', Server.current_ref, 'You are currently logged in. Logout and try again.')
+            return format_res_err(event, 'AlreadyLoggedIn', 'You are currently logged in. Logout and try again.', ref=Server.current_ref)
 
         """ Check if someone has already logged into this account. """
-        for key, item in self.server.wss_accounts.items():
+        for key, item in Server.wss_accounts.items():
             if item == traveller_id:
-                return format_res_err(event, 'AccountTaken', Server.current_ref, 'Another user has already logged into this account.')
+                return format_res_err(event, 'AccountTaken', 'Another user has already logged into this account.', ref=Server.current_ref)
 
         if checkpw(bytes(traveller_password, encoding='ascii'), Server.travellers[traveller_id].traveller_password if Server.IS_LOCAL
                                                                 else self.get_users()[traveller_id]['travellerPassword']):
             """ Link the IP to an account. """
-            self.server.wss_accounts[wss.remote_address[0]] = traveller_id
+            Server.wss_accounts[wss.remote_address[0]] = traveller_id
 
             return format_res(event, ref=Server.current_ref, travellerId=traveller_id)
 
-        return format_res_err(event, 'InvalidPassword', Server.current_ref, f'The password is invalid.')
+        return format_res_err(event, 'InvalidPassword', f'The password is invalid.', ref=Server.current_ref)
 
-    def event_logout_traveller(self, event: str, wss: WebSocketClientProtocol) -> str:
+    def event_logout_traveller(self, event: str, wss: WebSocketClientProtocol):
         """Logs out a user from his associated traveller, if any. 
 
         Args:
@@ -191,38 +217,13 @@ class AccountHandler():
 
             logoutTravellerNoAccount: There is no account associated with this IP address.
         """
-        if wss.remote_address[0] in self.server.wss_accounts:
-            del self.server.wss_accounts[wss.remote_address[0]]
+        if wss.remote_address[0] in Server.wss_accounts:
+            del Server.wss_accounts[wss.remote_address[0]]
 
             return format_res(event, ref=Server.current_ref)
-        return format_res_err(event, 'NoAccount', Server.current_ref, 'There is no account associated with this IP.')
+        return format_res_err(event, 'NoAccount', 'There is no account associated with this IP.', ref=Server.current_ref)
 
-    def event_fetch_traveller(self, event: str, ref: str, traveller_id: str) -> str:
-        """Fetches a traveller's info, if he exists in the database.
-
-        Args:
-            traveller_id (str): The id of the traveller to fetch info from.
-
-        Possible Responses:
-            fetchTravellerReply: Info about a traveller has been successfully fetched.
-
-            fetchTravellerNotFound: The traveller with the required ID could not be found.
-        """
-        traveller_name = ''
-
-        if Server.IS_LOCAL:
-            if traveller_id in Server.travellers:
-                traveller_name = Server.travellers[traveller_id].traveller_name
-        else:
-            if traveller_id in self.get_users():
-                traveller_name = self.get_users(
-                )[traveller_id]['travellerName']
-
-        if traveller_name:
-            return format_res(event, ref, travellerName=traveller_name, travellerId=traveller_id)
-        return format_res_err(event, 'NotFound', f'Traveller with id {traveller_id} not found.', ref)
-
-    """ Shared Methods """
+    """ Methods """
 
     def check_account(self, request_ip: str) -> bool:
         """Checks whether or not an IP is associated with an account.

@@ -69,7 +69,7 @@ def check_loop_data(data: dict, keys: List[str]):
 
     for key in keys:
         if key not in data:
-            keys_needed.append(key)
+            keys_needed.append(to_camel_case(key))
             continue
 
         try:

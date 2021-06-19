@@ -25,6 +25,9 @@ from time import time
 """ Generating unique IDs. """
 from uuid import uuid4
 
+""" Getting error tracebacks. """
+from sys import exc_info
+
 """ 3RD-PARTY MODULES """
 
 """ The main way of communicating. """
@@ -61,13 +64,11 @@ class Server():
     
     """ Passed reference to facilitate wrapper-fetching. """
     current_ref: str = None
-    
-    """ Telemetry. """
-    ip_requests: Dict[str, int] = {}
             
     def __init__(self):
         """ Telemetry. """
         self.total_requests = 0
+        self.ip_requests: Dict[str, int] = {}
 
     def register(self, callback: Awaitable) -> None:
         """Register an event"""
@@ -110,35 +111,34 @@ class Server():
             for arg, value in data.items():
                 arg_to_add = to_snake_case(arg, True)
                 
-                if arg_to_add in target_args:
+                if arg_to_add in target_args_names:
                     """ Preserve event name. """
                     if arg == 'event':
                         arg_to_add = arg
+                        
                     target_args[arg_to_add] = value
 
             """ Custom arguments to pass manually. """
-            if 'wss' in target_args:
+            if 'wss' in target_args_names:
                 target_args['wss'] = wss
 
             """ Check for arguments before calling, the call may not error but some arguments may be empty. """
-            args_errored = check_loop_data(target_args_names, target_args)
+            args_errored = check_loop_data(target_args, target_args_names)
 
             if args_errored:
-                return format_res_err(event, 'FormatError', args_errored, True)
+                return format_res_err(event, 'FormatError', args_errored, True, ref=Server.current_ref)
             try:
-                return await target(**target_args)
+                return target(**target_args)
+            
             except Exception as e:
                 """ Create bug report. """
                 if self.IS_LOCAL:
-                    print(e)
+                    print(exc_info())
                 else:
-                    try:
-                        self.mdb.users.insert_one({f'bug{str(uuid4())}', str(e)})
-                    except:
-                        print(f'FATAL DATABASE ERROR EXITING: \n{str(e)}')
-                        exit()
+                    self.mdb.logs.insert_one({f'bug-{str(uuid4())}': exc_info()})
 
-                return format_res_err(event, 'EventUnknownError', 'Unknown internal server error.', True)
+                return format_res_err(event, 'EventUnknownError', 'Unknown internal server error.', True, ref=Server.current_ref)
+            
         except KeyError:
             """ Provide the user with the available events, in a seperate key to be able to split them. """
             possible_events = [to_camel_case(event.replace('event_', '')) for event in self.events.keys()]
@@ -148,7 +148,7 @@ class Server():
             for i, ev in enumerate(possible_events):
                 events_response = f"{events_response}{ev}|" if i + 1 < len(possible_events) else f"{events_response}{ev}"
                 
-            return format_res_err(event, 'EventNotFound', 'This event doesn\'t exist.', True, possibleEvents=events_response)
+            return format_res_err(event, 'EventNotFound', 'This event doesn\'t exist.', True, ref=Server.current_ref, possibleEvents=events_response)
 
     async def serve(self, wss: WebSocketClientProtocol, path: str) -> None:
         """Called only by websockets.serve.
@@ -192,8 +192,9 @@ class Server():
 
                 """ Remember to return passed reference. """
                 if 'ref' in data:
-                    self.current_ref = data['ref']
+                    Server.current_ref = data['ref']
 
+                """ Convert to dict for checks. """
                 result = await self.handle_request(wss, data)
 
                 """ If nothing is returned, skip this call. """
@@ -209,7 +210,7 @@ class Server():
                 print(f"[{self.total_requests}] {result['originalEvent']}: {result['event']}")
 
                 """ Reset ref. """
-                self.current_ref = None
+                Server.current_ref = None
 
             except ConnectionClosed as e:
                 """ Don't remove traveller from IP requests, prevent spam. """
@@ -241,7 +242,7 @@ class Server():
 
             print(f'Successfully setup MongoDB in {int(round(time() - start, 2) * 1000)} ms.')
 
-            self.mdb = mdb
+            Server.mdb = mdb
 
         except OperationFailure:
             print('Invalid username or password provided for MongoDB, exiting.')
