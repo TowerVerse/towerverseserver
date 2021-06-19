@@ -841,14 +841,14 @@ if __name__ == '__main__':
         
     print(f'Server type: {server_type}')
 
-    if not 'OPENDOGE_EMAIL_NAME' in environ or not 'OPENDOGE_EMAIL_PASSWORD' in environ:
+    if not 'OPENDOGE_EMAIL_NAME' in environ or not 'OPENDOGE_EMAIL_PASSWORD' in environ and not IS_LOCAL and not IS_TEST:
         print('Environmental variables OPENDOGE_EMAIL_NAME and OPENDOGE_EMAIL_PASSWORD must be set in order for email capabilities to function, exiting.')
         exit()
     else:
         setup_email(environ['OPENDOGE_EMAIL_NAME'], environ['OPENDOGE_EMAIL_PASSWORD'])
         
     """ Setup MongoDB. """
-    if not IS_LOCAL:
+    if not IS_LOCAL and not IS_TEST:
         if not 'OPENDOGE_MONGODB_USERNAME' in environ or not 'OPENDOGE_MONGODB_PASSWORD' in environ:
             print('MongoDB variables must either be passed to the start function or set to the environmental variables: OPENDOGE_MONGODB_USERNAME, OPENDOGE_MONGODB_PASSWORD for the production server to function!')
             exit()
