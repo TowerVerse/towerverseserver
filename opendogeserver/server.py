@@ -532,7 +532,7 @@ async def request_switcher(wss: WebSocketClientProtocol, data: dict):
 
         try:
             return target_function(**target_args)
-        except Exception as e:
+        except:
 
             """ Create bug report. """
             if IS_LOCAL:
