@@ -57,14 +57,14 @@ from bcrypt import checkpw, gensalt, hashpw
 """ MongoDB. """
 from pymongo import MongoClient
 from pymongo.database import Database
-from pymongo.errors import OperationFailure
+from pymongo.errors import OperationFailure, ConfigurationError
 
 """ Email verification and more. """
 from aioyagmail import SMTP
 
 """ LOCAL MODULES """
 
-from opendogeserver.classes import *
+from towerverseserver.classes import *
 
 
 """ Global variables. """
@@ -129,8 +129,8 @@ IS_LOCAL = '--local' in argv
 IS_TEST = '--test' in argv
 
 """ MongoDB-related, mdbclient and mdb are filled in at setup_mongo. """
-mongo_project_name = 'opendoge'
-mongo_database_name = 'opendoge-db'
+mongo_project_name = 'towerverse.kx1he'
+mongo_database_name = 'towerverse-db'
 mongo_client_extra_args = 'retryWrites=true&w=majority'
 mdbclient: MongoClient = None
 mdb: Database = None
@@ -665,7 +665,7 @@ async def request_switcher(wss: WebSocketClientProtocol, data: dict):
         except:
 
             """ Create bug report. """
-            if IS_LOCAL:
+            if IS_LOCAL or IS_TEST:
                 print(str(exc_info()))
             else:
                 try:
@@ -775,7 +775,7 @@ def setup_mongo(mongodb_username: str, mongodb_password: str) -> None:
     global mdbclient
     
     try:
-        mdbclient = MongoClient(f'mongodb+srv://{mongodb_username}:{mongodb_password}@{mongo_project_name}.vevnl.mongodb.net/{mongo_database_name}?{mongo_client_extra_args}')
+        mdbclient = MongoClient(f'mongodb+srv://{mongodb_username}:{mongodb_password}@{mongo_project_name}.mongodb.net/?{mongo_client_extra_args}')
 
         global mdb
 
@@ -788,6 +788,10 @@ def setup_mongo(mongodb_username: str, mongodb_password: str) -> None:
     
     except OperationFailure:
         print('Invalid username or password provided for MongoDB, exiting.')
+        exit()
+
+    except ConfigurationError:
+        print('The TowerVerse database may be temporarily down, exiting.')
         exit()
 
 def setup_email(email: str, password: str) -> None:
@@ -850,20 +854,19 @@ if __name__ == '__main__':
         
     print(f'Server type: {server_type}')
 
-    if not IS_TEST:
-        if not 'OPENDOGE_EMAIL_NAME' in environ or not 'OPENDOGE_EMAIL_PASSWORD' in environ and not IS_LOCAL:
-            print('Environmental variables OPENDOGE_EMAIL_NAME and OPENDOGE_EMAIL_PASSWORD must be set in order for email capabilities to function, exiting.')
+    if not IS_TEST and not IS_LOCAL:
+        if not 'TOWERVERSE_EMAIL_ADDRESS' in environ or not 'TOWERVERSE_EMAIL_PASSWORD' in environ and not IS_LOCAL:
+            print('Environmental variables TOWERVERSE_EMAIL_ADDRESS and TOWERVERSE_EMAIL_PASSWORD must be set in order for email capabilities to function, exiting.')
             exit()
         else:
-            setup_email(environ['OPENDOGE_EMAIL_NAME'], environ['OPENDOGE_EMAIL_PASSWORD'])
+            setup_email(environ['TOWERVERSE_EMAIL_ADDRESS'], environ['TOWERVERSE_EMAIL_PASSWORD'])
             
         """ Setup MongoDB. """
-        if not IS_LOCAL:
-            if not 'OPENDOGE_MONGODB_USERNAME' in environ or not 'OPENDOGE_MONGODB_PASSWORD' in environ:
-                print('MongoDB variables must either be passed to the start function or set to the environmental variables: OPENDOGE_MONGODB_USERNAME, OPENDOGE_MONGODB_PASSWORD for the production server to function!')
-                exit()
-            else:
-                setup_mongo(environ['OPENDOGE_MONGODB_USERNAME'], environ['OPENDOGE_MONGODB_PASSWORD'])
+        if not 'TOWERVERSE_MONGODB_USERNAME' in environ or not 'TOWERVERSE_MONGODB_PASSWORD' in environ:
+            print('Environmental variables TOWERVERSE_MONGODB_USERNAME and TOWERVERSE_MONGODB_PASSWORD must be set in order for email capabilities to function, exiting.')
+            exit()
+        else:
+            setup_mongo(environ['TOWERVERSE_MONGODB_USERNAME'], environ['TOWERVERSE_MONGODB_PASSWORD'])
 
     """ Heroku expects us to bind on a specific port, if deployed locally we can bind anywhere. """
     port = environ.get('PORT', 5000)
