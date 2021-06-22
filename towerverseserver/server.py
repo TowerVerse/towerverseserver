@@ -323,8 +323,8 @@ def gen_verification_code() -> str:
     
     verification_code = ''
     
-    for i in range(20):
-        verification_code += str(choice(f'{ascii_letters}{digits}'))
+    for i in range(6):
+        verification_code += str(choice(digits))
 
     return verification_code
 
