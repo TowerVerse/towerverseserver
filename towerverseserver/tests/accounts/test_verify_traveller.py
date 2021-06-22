@@ -1,4 +1,16 @@
-""" verifyTraveller test. """
+"""
+License: GPL-3
+
+Maintainer: Shadofer#0001
+
+Contributors: 
+
+File description:
+    The test regarding the verifyTraveller response.
+
+Extra info:
+    None
+"""
 
 """ BUILT-IN MODULES """
 from json import dumps, loads

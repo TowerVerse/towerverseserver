@@ -1,3 +1,20 @@
+""" 
+License: GPL-3
+
+Maintainer: Shadofer#0001
+
+Contributors: 
+
+File description:
+    The classes of the server of TowerVerse.
+
+Extra info:
+    None
+"""
+
+""" BUILT-IN MODULES """
+
+""" A better way to use classes. """
 from dataclasses import dataclass
 
 def check(items: dict):

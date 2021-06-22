@@ -1,7 +1,23 @@
 """
 
-Made by Shadofer#0001.
-Pass --tests in order to disable database-related methods. Otherwise set environmental variables for MongoDB.
+License: GPL-3
+
+Maintainer: Shadofer#0001
+
+Contributors: Otterlord#3653
+
+File description:
+    The main file of the server of TowerVerse.
+
+Extra info:
+    Pass --local in order to disable database-related methods and --test to use it with pytest.
+
+    Otherwise set the following environmental variables for MongoDB and Email functions:
+
+        TOWERVERSE_EMAIL_ADDRESS: The email address to send emails with,
+        TOWERVERSE_EMAIL_PASSWORD: The password of the email address,
+        TOWERVERSE_MONGODB_USERNAME: The username of an authored user of your MongoDB,
+        TOWERVERSE_MONGODB_PASSWORD: The password of the authored user.
 
 """
 
