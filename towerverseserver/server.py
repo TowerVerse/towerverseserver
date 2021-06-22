@@ -339,10 +339,9 @@ async def send_email(to: str, title: str, content: List[str]) -> None:
     """    
     try:
         validate_email(to)
+        email_smtp.send(to, title, content)
     except EmailNotValidError as e:
         print_error('Invalid email provided to send_email, aborting operation', e)
-        
-    email_smtp.send(to, title, content)
 
 def print_error(print_msg: str, exc: Exception) -> None:
     """Prints an error and continues normal execution of the program.
