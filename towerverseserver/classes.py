@@ -17,6 +17,7 @@ Extra info:
 """ A better way to use classes. """
 from dataclasses import dataclass
 
+
 def check(items: dict):
     for item, type in items:
         assert isinstance(item, type)

@@ -32,14 +32,14 @@ from json import dumps, loads
 from json.decoder import JSONDecodeError
 
 """ Getting hosting info. """
-from socket import gethostname, gethostbyname
+from socket import gethostbyname, gethostname
 
 """ Specifying variable types. """
 from typing import Dict, List
 
 """ Generating account IDs. """
 from random import choice
-from string import digits, ascii_letters, ascii_uppercase
+from string import ascii_letters, ascii_uppercase, digits
 
 """ Inspect functions. """
 from inspect import getfullargspec
@@ -61,11 +61,11 @@ from sys import argv, exc_info
 """ The main way of communicating. """
 from websockets import serve as ws_serve
 from websockets.client import WebSocketClientProtocol
-from websockets.legacy.server import WebSocketServerProtocol
 from websockets.exceptions import ConnectionClosed
+from websockets.legacy.server import WebSocketServerProtocol
 
 """ Email validation. """
-from email_validator import validate_email, EmailNotValidError
+from email_validator import EmailNotValidError, validate_email
 
 """ Password hashing. """
 from bcrypt import checkpw, gensalt, hashpw
@@ -73,7 +73,7 @@ from bcrypt import checkpw, gensalt, hashpw
 """ MongoDB. """
 from pymongo import MongoClient
 from pymongo.database import Database
-from pymongo.errors import OperationFailure, ConfigurationError
+from pymongo.errors import ConfigurationError, OperationFailure
 
 """ Email verification and more. """
 from aioyagmail import SMTP
@@ -81,7 +81,6 @@ from aioyagmail import SMTP
 """ LOCAL MODULES """
 
 from towerverseserver.classes import *
-
 
 """ Global variables. """
 

@@ -23,6 +23,7 @@ from websockets.client import connect
 """ Ordering and running asynchronous tests. """
 import pytest
 
+
 @pytest.mark.asyncio
 @pytest.mark.run(order=6)
 async def test_fetch_traveller_response():
