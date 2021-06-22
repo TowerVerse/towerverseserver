@@ -340,9 +340,34 @@ async def send_email(to: str, title: str, content: List[str]) -> None:
     try:
         validate_email(to)
     except EmailNotValidError as e:
-        print(f'Invalid email provided to send_email, aborting operation: {e}')
+        print_error('Invalid email provided to send_email, aborting operation', e)
         
     email_smtp.send(to, title, content)
+
+def print_error(print_msg: str, exc: Exception) -> None:
+    """Prints an error and continues normal execution of the program.
+
+    Args:
+        print_msg (str): The message to print.
+        exc (Exception): The exception to print below the print_msg.
+    """
+    if isinstance(exc, Exception):
+        print(f'{print_msg}: \n{exc.__class__.__name__}{exc}')
+    else:
+        print('Invalid exception passed to print_error, aborting operation.')
+
+def print_error_and_exit(exit_msg: str, exc: Exception) -> None:
+    """Prints an error and forcefully exits program execution. ONLY FOR DESTRUCTIVE EXCEPTIONS.
+
+    Args:
+        exit_msg (str): The message to print.
+        exc (Exception): The exception to print below the exit_msg.
+    """
+    if isinstance(exc, Exception):
+        print(f'{exit_msg}, exiting: \n{exc.__class__.__name__}: {exc}')
+        exit()
+    else:
+        print('Invalid exception passed to print_error_and_exit, aborting operation.')
 
 """ Events """
 
@@ -819,12 +844,12 @@ def setup_email(email: str, password: str) -> None:
     try:
         validate_email(email)
     except EmailNotValidError as e:
-        print(f'Error in setup_email, exiting: {e}')
+        print_error_and_exit('Error in setup_email', e)
         exit()
 
     global email_smtp
     email_smtp = SMTP(email, password)
-    print(f'Successfully setup email account.')
+    print('Successfully setup email account.')
 
 """ Tasks """
 
@@ -898,11 +923,15 @@ if __name__ == '__main__':
         print('Tasks started.')
 
     try:
+        loop.run_until_complete(start_server)
+    except Exception as e:
+        print_error_and_exit('Server failed to start', e)
+        exit()
+
+    try:
         print(f'Server running at: {gethostbyname(gethostname())}:{port}')
     except gaierror:
         print(f'Server running at port: {port}')
-
-    loop.run_until_complete(start_server)
 
     """ Start the infinite server loop. """
     try:
@@ -910,4 +939,4 @@ if __name__ == '__main__':
     except KeyboardInterrupt:
         exit()
     except Exception as e:
-        print(f'Server shut down due to an error: \n{e.__traceback__}')
+        print('Server shut down due to an error', e)
