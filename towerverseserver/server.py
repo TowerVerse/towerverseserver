@@ -127,9 +127,8 @@ EMAIL_CHARACTERS = f'{ascii_letters}{digits}@.'
 MIN_EMAIL_LENGTH = 10
 MAX_EMAIL_LENGTH = 60
 
-PASSWORD_CHARACTERS = f'{ascii_letters}{digits}.!#[]\\^_'
-MIN_PASS_LENGTH = 8
-MAX_PASS_LENGTH = 30
+MIN_PASS_LENGTH = 10
+MAX_PASS_LENGTH = 50
 
 """ Accounts linked to IPs. """
 wss_accounts: Dict[str, str] = {}
@@ -389,7 +388,6 @@ def event_create_traveller(event: str, traveller_name: str, traveller_email: str
         createTravellerAlreadyLoggedIn: The IP is already logged in to another account.
         createTravellerNameBadFormat: The name of the account contains invalid characters.
         createTravellerEmailBadFormat: The email of the account contains invalid characters.
-        createTravellerPasswordBadFormat: The password of the account contains invalid characters.
     """
 
     if check_account(wss.remote_address[0]):
@@ -422,11 +420,7 @@ def event_create_traveller(event: str, traveller_name: str, traveller_email: str
     for letter in traveller_email:
         if letter not in EMAIL_CHARACTERS:
             return format_res_err(event, 'EmailBadFormat', f'The email of the account contains invalid characters.')
-        
-    for letter in traveller_password:
-        if letter not in PASSWORD_CHARACTERS:
-            return format_res_err(event, 'PasswordBadFormat', f'The password of the account contains invalid characters.')
-    
+
     """ Prevent duplicate emails. """
     is_email_taken = False
 
@@ -483,7 +477,6 @@ def event_login_traveller(event: str, traveller_email: str, traveller_password: 
         loginTravellerAccountTaken: The target account is already taken by another IP.
         loginTravellerPasswordExceedsLimit: The provided password exceeds current password length limitations.
         loginTravellerEmailBadFormat: The email of the account contains invalid characters.
-        loginTravellerPasswordBadFormat: The password of the account contains invalid characters.
     """
 
     """ Validate the email, check if it has @ and a valid domain. """
@@ -499,10 +492,6 @@ def event_login_traveller(event: str, traveller_email: str, traveller_password: 
     for letter in traveller_email:
         if letter not in EMAIL_CHARACTERS:
             return format_res_err(event, 'EmailBadFormat', f'The email of the account contains invalid characters.')
-        
-    for letter in traveller_password:
-        if letter not in PASSWORD_CHARACTERS:
-            return format_res_err(event, 'PasswordBadFormat', f'The password of the account contains invalid characters.')
         
     """ Determine which id the email is associated with. """
     traveller_id = ''
