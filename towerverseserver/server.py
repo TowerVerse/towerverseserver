@@ -53,8 +53,8 @@ from time import time
 """ Generating account hashes. """
 from uuid import uuid4
 
-""" Getting command-line arguments and tracebacks. """
-from sys import argv, exc_info
+""" Getting command-line arguments. """
+from sys import argv
 
 """ 3RD-PARTY MODULES """
 
@@ -701,17 +701,16 @@ async def request_switcher(wss: WebSocketClientProtocol, data: dict):
 
         try:
             return target_function(**target_args)
-        except:
+        except Exception as e:
 
             """ Create bug report. """
             if IS_LOCAL or IS_TEST:
-                print(str(exc_info()))
+                print_error(f'Error occured while calling {event}', e)
             else:
                 try:
-                    mdb.logs.insert_one({f'bug-{str(uuid4())}': str(exc_info())})
+                    mdb.logs.insert_one({f'bug-{str(uuid4())}': f'{e.__class__.__name__}{e}'})
                 except:
-                    print(f'FATAL DATABASE ERROR EXITING: \n{str(exc_info())}')
-                    exit()
+                    print_error_and_exit('Fatal database error', e)
 
             return format_res_err(event, 'EventUnknownError', 'Unknown internal server error.', True)
 
@@ -844,7 +843,6 @@ def setup_email(email: str, password: str) -> None:
         validate_email(email)
     except EmailNotValidError as e:
         print_error_and_exit('Error in setup_email', e)
-        exit()
 
     global email_smtp
     email_smtp = SMTP(email, password)
@@ -925,7 +923,6 @@ if __name__ == '__main__':
         loop.run_until_complete(start_server)
     except Exception as e:
         print_error_and_exit('Server failed to start', e)
-        exit()
 
     try:
         print(f'Server running at: {gethostbyname(gethostname())}:{port}')
@@ -938,4 +935,4 @@ if __name__ == '__main__':
     except KeyboardInterrupt:
         exit()
     except Exception as e:
-        print('Server shut down due to an error', e)
+        print_error_and_exit('Server shut down due to an error', e)
