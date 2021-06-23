@@ -536,7 +536,7 @@ def event_logout_traveller(event: str, wss: WebSocketClientProtocol):
 
         logoutTravellerNoAccount: There is no account associated with this IP address.
     """
-    if wss.remote_address[0] in wss_accounts:
+    if check_account(wss.remote_address[0]):
         del wss_accounts[wss.remote_address[0]]
 
         return format_res(event)
@@ -780,7 +780,7 @@ async def serve(wss: WebSocketClientProtocol, path: str) -> None:
             """ Don't remove traveller from IP requests, prevent spam. """
 
             """ Remove a traveller from the linked accounts list, not online anymore. Only for production servers. """
-            if wss.remote_address[0] in wss_accounts and not IS_LOCAL:
+            if check_account(wss.remote_address[0]) and not IS_LOCAL:
                 del wss_accounts[wss.remote_address[0]]
 
             print(f'A traveller has disconnected. Code: {e.code} | Travellers online: {len(wss_accounts)}')
