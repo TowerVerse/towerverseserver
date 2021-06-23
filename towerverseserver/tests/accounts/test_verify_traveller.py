@@ -29,7 +29,7 @@ import pytest
 async def test_verify_traveller_response():
     async with connect('ws://localhost:5000') as wss:
 
-        await wss.send(dumps({'event': 'verifyTraveller', 'travellerId': '123', 'travellerCode': 'somecode'}))
+        await wss.send(dumps({'event': 'verifyTraveller', 'travellerId': '123', 'travellerCode': '123456'}))
 
         response = loads(await wss.recv())
 

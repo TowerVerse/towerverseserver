@@ -130,6 +130,8 @@ MAX_EMAIL_LENGTH = 60
 MIN_PASS_LENGTH = 10
 MAX_PASS_LENGTH = 50
 
+VERIFICATION_CODE_LENGTH = 6
+
 """ Accounts linked to IPs. """
 wss_accounts: Dict[str, str] = {}
 
@@ -315,7 +317,7 @@ def get_users() -> dict:
     return result_users
 
 def gen_verification_code() -> str:
-    """Generates a verification code to be provided in order to create a traveller account.
+    """Generates a verification code with length VERIFICATION_CODE_LENGTH.
 
     Returns:
         str: The verification code.
@@ -323,7 +325,7 @@ def gen_verification_code() -> str:
     
     verification_code = ''
     
-    for i in range(6):
+    for i in range(VERIFICATION_CODE_LENGTH):
         verification_code += str(choice(digits))
 
     return verification_code
@@ -452,7 +454,7 @@ def event_create_traveller(event: str, traveller_name: str, traveller_email: str
     hashed_password = hashpw(bytes(traveller_password, encoding='ascii'), gensalt(rounds=13))
 
     """ Add the account to a temporary dictionary until it's verified. Also generate the target verification code. """
-    traveller_verification = gen_verification_code()
+    traveller_verification = gen_verification_code() if not IS_TEST else '123456'
     accounts_to_create[traveller_id] = TempTraveller(traveller_id, traveller_name, traveller_email, hashed_password, traveller_verification)
 
     """ Send email verification code, doesn't need to block. Don't do this for tests. """
@@ -600,39 +602,34 @@ def event_verify_traveller(event: str, traveller_id: str, traveller_code: str, w
         
         verifyTravellerNotFound: The specified traveller could not be found.
         verifyTravellerInvalidCode: The provided code is invalid.
+        verifyTravellerCodeExceedsLimit: The code's length is not VERIFICATION_CODE_LENGTH.
     """
-    
-    """ Verify to pass test. """
-    if IS_TEST:
-        target_acc = accounts_to_create[traveller_id]
-        
-        travellers[traveller_id] = Traveller(target_acc.traveller_id, target_acc.traveller_name, target_acc.traveller_email, target_acc.traveller_password)
-        
-        wss_accounts[wss.remote_address[0]] = traveller_id  
-        
-        return format_res(event, travellerId=traveller_id)
     
     if traveller_id not in accounts_to_create:
         return format_res_err(event, 'NotFound', 'The specified traveller account could not be found.')
 
-    if accounts_to_create[traveller_id].traveller_code == traveller_code:
-        
-        target_acc = accounts_to_create[traveller_id]
-        
-        """ Actually create the account here and link. """
-        if IS_LOCAL:
-            travellers[traveller_id] = Traveller(target_acc.traveller_id, target_acc.traveller_name, target_acc.traveller_email, target_acc.traveller_password)
+    if len(traveller_code) == VERIFICATION_CODE_LENGTH:
+        if accounts_to_create[traveller_id].traveller_code == traveller_code:
+            
+            target_acc = accounts_to_create[traveller_id]
+            
+            """ Actually create the account here and link. """
+            if IS_LOCAL:
+                travellers[traveller_id] = Traveller(target_acc.traveller_id, target_acc.traveller_name, target_acc.traveller_email, target_acc.traveller_password)
+            else:
+                mdb.users.insert_one({traveller_id: {'travellerName': target_acc.traveller_name, 'travellerEmail': target_acc.traveller_email,
+                                                'travellerPassword': target_acc.traveller_password}})
+            
+            wss_accounts[wss.remote_address[0]] = traveller_id    
+            
+            """ Remove the created account from the temp list. """
+            del accounts_to_create[traveller_id]
+            
+            return format_res(event, travellerId=traveller_id)
         else:
-            mdb.users.insert_one({traveller_id: {'travellerName': target_acc.traveller_name, 'travellerEmail': target_acc.traveller_email,
-                                            'travellerPassword': target_acc.traveller_password}})
-        
-        wss_accounts[wss.remote_address[0]] = traveller_id    
-        
-        """ Remove the created account from the temp list. """
-        del accounts_to_create[traveller_id]
-        
-        return format_res(event, travellerId=traveller_id)
-    return format_res_err(event, 'InvalidCode', 'The provided code is invalid.')
+            return format_res_err(event, 'InvalidCode', 'The provided code is invalid.')
+    else:
+        return format_res_err(event, 'CodeExceedsLimit', f'The verification code must be exactly {VERIFICATION_CODE_LENGTH} characters.')
 
 """ Main """
 
