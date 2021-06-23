@@ -1,4 +1,5 @@
-# TowerVerseServer ![GitHub](https://img.shields.io/github/license/TowerVerse/towerverseserver) ![GitHub Repo stars](https://img.shields.io/github/stars/TowerVerse/towerverseserver?style=social) ![GitHub forks](https://img.shields.io/github/forks/TowerVerse/towerverseserver?style=social) ![GitHub commit activity](https://img.shields.io/github/commit-activity/m/TowerVerse/towerverseserver) ![GitHub Sponsors](https://img.shields.io/github/sponsors/TowerVerse) ![GitHub issues](https://img.shields.io/github/issues/TowerVerse/towerverseserver)
+# TowerVerseServer
+![GitHub](https://img.shields.io/github/license/TowerVerse/towerverseserver) ![GitHub Repo stars](https://img.shields.io/github/stars/TowerVerse/towerverseserver?style=social) ![GitHub forks](https://img.shields.io/github/forks/TowerVerse/towerverseserver?style=social) ![GitHub commit activity](https://img.shields.io/github/commit-activity/m/TowerVerse/towerverseserver) ![GitHub Sponsors](https://img.shields.io/github/sponsors/TowerVerse) ![GitHub issues](https://img.shields.io/github/issues/TowerVerse/towerverseserver)
 
 ## Branch statuses
 
@@ -20,9 +21,9 @@
 
 ### Requirements:
 
-- **OS: macOS/Linux distribution**
+- **OS: Windows 10/macOS/Linux distribution (commands shown here are for bash)**
 - **python >= 3.7.0**
-- **pip**
+- **pip3**
 
 ### Procedure
 
@@ -38,7 +39,7 @@
 
 - **```cd {fork directory root}```**
 
-- **(Optional) Use ```git switch beta``` to use the latest server features which may or may not be stable.**
+- **(Optional) Type ```git switch beta``` to use the latest server features which may or may not be stable.**
 
 - **```python3 towerverseserver/server.py --local```**
 
@@ -46,10 +47,8 @@
 
 **The server will run on a designated port (5000 by default) at localhost.**
 
-**Note: Passing --local means no database will be used. Otherwise set the environmental variables TOWERVERSE_MONGODB_USERNAME, TOWERVERSE_MONGODB_PASSWORD, TOWERVERSE_EMAIL_ADDRESS and TOWERVERSE_EMAIL_PASSWORD to the ones the TowerVerse owner has given you or to the ones corresponding to your own credentials.**
+**Note: Passing --local means no database will be used. Otherwise set the environmental variables described in the extra information at the top of the [server file](https://github.com/TowerVerse/towerverseserver/blob/master/towerverseserver/server.py).**
 
 ## Hosting online
 
-**One must set the above environmental variables alongside *PORT* to inform the server that it should be attached to a specific one.**
-
-**NOTE: *PORT* defaults to 5000.**
+**The *PORT* environmental variable can be set to inform that the server be attached to a specific one.**
