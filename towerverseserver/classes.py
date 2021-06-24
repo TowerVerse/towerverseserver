@@ -17,11 +17,6 @@ Extra info:
 """ A better way to use classes. """
 from dataclasses import dataclass
 
-
-def check(items: dict):
-    for item, type in items:
-        assert isinstance(item, type)
-
 @dataclass(frozen=True)
 class Tower():
     """The base `Tower` instance. """

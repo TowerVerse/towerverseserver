@@ -236,16 +236,6 @@ def format_res_err(event_name: str, event_reply: str, error_message: str, is_no_
 
     return dumps(result_data)
 
-def check(data: dict) -> None:
-    """Checks pairs of a dictionary where the second key must denote the required type of the first one. eg: 
-        
-    ```check({some_expected_int_var: int})```
-
-    Args:
-        data (dict): The dictionary to check.
-    """
-    for item, type in data:
-        assert isinstance(item, type)
 
 def check_loop_data(data: dict, keys: List[str]):
     """Checks if a number of keys are present in a dictionary.
