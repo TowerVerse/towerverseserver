@@ -358,6 +358,42 @@ def print_error_and_exit(exit_msg: str, exc: Exception) -> None:
     else:
         print('Invalid exception passed to print_error_and_exit, aborting operation.')
 
+def format_password(password: str) -> str:
+    """Formats a provided password for checking later on with check_password.
+
+    Args:
+        password (str): The target password.
+
+    Returns:
+        str: The formatted password.
+    """
+
+    """ Get the version without spaces L/R. """
+    password = password.strip()
+
+    """ Remove extra whitespace. """
+    temp_password = ''
+
+    for letter in password:
+        if letter not in whitespace:
+            temp_password += letter
+
+    password = temp_password
+
+    return password
+
+def check_password(password: str) -> list:
+    """Tests a password with multiple cases. Should be used in combination with format_password.
+
+    Args:
+        password (str): The target password.
+
+    Returns:
+        list: The error, if one occured where: [0] the name of the error and [1] the description of the error.
+    """
+    if not len(password) >= MIN_PASS_LENGTH or not len(password) <= MAX_PASS_LENGTH:
+        return ['PasswordExceedsLimit', f'Traveller password must be between {MIN_PASS_LENGTH} and {MAX_PASS_LENGTH} characters long.']
+
 """ Events """
 
 def event_create_traveller(event: str, traveller_name: str, traveller_email: str, traveller_password: str, wss: WebSocketServerProtocol):
@@ -398,20 +434,13 @@ def event_create_traveller(event: str, traveller_name: str, traveller_email: str
     except EmailNotValidError as e:
         return format_res_err(event, 'EmailInvalid', str(e))
 
-    """ We need the stripped down version here aswell. """
-    traveller_password = traveller_password.strip()
+    traveller_password = format_password(traveller_password)
 
-    """ Remove extra whitespace. """
-    temp_traveller_password = ''
+    """ Pass all the password checks and return if there's an error returned. """
+    traveller_password_checks = check_password(traveller_password)
 
-    for letter in traveller_password:
-        if letter not in whitespace:
-            temp_traveller_password += letter
-
-    traveller_password = temp_traveller_password
-
-    if not len(traveller_password) >= MIN_PASS_LENGTH or not len(traveller_password) <= MAX_PASS_LENGTH:
-        return format_res_err(event, 'PasswordExceedsLimit', f'Traveller password must be between {MIN_PASS_LENGTH} and {MAX_PASS_LENGTH} characters long.')
+    if traveller_password_checks:
+        return format_res_err(event, traveller_password_checks[0], traveller_password_checks[1])
 
     """ Character checks. """
     for letter in traveller_name:
@@ -498,8 +527,11 @@ def event_login_traveller(event: str, traveller_email: str, traveller_password: 
 
     traveller_password = temp_traveller_password
 
-    if not len(traveller_password) >= MIN_PASS_LENGTH or not len(traveller_password) <= MAX_PASS_LENGTH:
-        return format_res_err(event, 'PasswordExceedsLimit', f'Traveller password must be between {MIN_PASS_LENGTH} and {MAX_PASS_LENGTH} characters long.')
+    """ Pass all the password checks and return if there's an error returned. """
+    traveller_password_checks = check_password(traveller_password)
+
+    if traveller_password_checks:
+        return format_res_err(event, traveller_password_checks[0], traveller_password_checks[1])
 
     """ Check invalid characters.  """
     for letter in traveller_email:
