@@ -39,7 +39,7 @@ from typing import Dict, List
 
 """ Generating account IDs. """
 from random import choice
-from string import ascii_letters, ascii_uppercase, digits
+from string import ascii_letters, ascii_uppercase, digits, whitespace
 
 """ Inspect functions. """
 from inspect import getfullargspec
@@ -400,6 +400,16 @@ def event_create_traveller(event: str, traveller_name: str, traveller_email: str
 
     """ We need the stripped down version here aswell. """
     traveller_password = traveller_password.strip()
+
+    """ Remove extra whitespace. """
+    temp_traveller_password = ''
+
+    for letter in traveller_password:
+        if letter not in whitespace:
+            temp_traveller_password += letter
+
+    traveller_password = temp_traveller_password
+
     if not len(traveller_password) >= MIN_PASS_LENGTH or not len(traveller_password) <= MAX_PASS_LENGTH:
         return format_res_err(event, 'PasswordExceedsLimit', f'Traveller password must be between {MIN_PASS_LENGTH} and {MAX_PASS_LENGTH} characters long.')
 
@@ -478,6 +488,16 @@ def event_login_traveller(event: str, traveller_email: str, traveller_password: 
 
     """ We need the stripped down version here aswell. """
     traveller_password = traveller_password.strip()
+
+    """ Remove extra whitespace. """
+    temp_traveller_password = ''
+
+    for letter in traveller_password:
+        if letter not in whitespace:
+            temp_traveller_password += letter
+
+    traveller_password = temp_traveller_password
+
     if not len(traveller_password) >= MIN_PASS_LENGTH or not len(traveller_password) <= MAX_PASS_LENGTH:
         return format_res_err(event, 'PasswordExceedsLimit', f'Traveller password must be between {MIN_PASS_LENGTH} and {MAX_PASS_LENGTH} characters long.')
 
