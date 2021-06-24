@@ -809,7 +809,7 @@ def setup_mongo(mongodb_username: str, mongodb_password: str) -> None:
         print('The TowerVerse database may be temporarily down, exiting.')
         exit()
 
-def setup_email(email: str, password: str) -> None:
+def setup_email(email_address: str, email_password: str) -> None:
     """Sets up the account to use when sending emails.
 
     Args:
@@ -817,12 +817,12 @@ def setup_email(email: str, password: str) -> None:
         password (str): The email's password.
     """
     try:
-        validate_email(email)
+        validate_email(email_address)
     except EmailNotValidError as e:
         print_error_and_exit('Error in setup_email', e)
 
     global email_smtp
-    email_smtp = SMTP(email, password)
+    email_smtp = SMTP(email_address, email_password)
     print('Successfully setup email account.')
 
 """ Tasks """
