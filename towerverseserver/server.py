@@ -236,7 +236,6 @@ def format_res_err(event_name: str, event_reply: str, error_message: str, is_no_
 
     return dumps(result_data)
 
-
 def check_loop_data(data: dict, keys: List[str]):
     """Checks if a number of keys are present in a dictionary.
 
@@ -477,14 +476,16 @@ def event_login_traveller(event: str, traveller_email: str, traveller_password: 
     except EmailNotValidError as e:
         return format_res_err(event, 'EmailInvalid', str(e))
 
-    """ Check password validity. """
-    if not len(traveller_password.strip()) >= MIN_PASS_LENGTH or not len(traveller_password.strip()) <= MAX_PASS_LENGTH:
-        return format_res_err(event, 'PasswordExceedsLimit', f'Traveller password must be between {MIN_PASS_LENGTH} and {MAX_PASS_LENGTH} characters.')
+    """ We need the stripped down version here aswell. """
+    traveller_password = traveller_password.strip()
+    if not len(traveller_password) >= MIN_PASS_LENGTH or not len(traveller_password) <= MAX_PASS_LENGTH:
+        return format_res_err(event, 'PasswordExceedsLimit', f'Traveller password must be between {MIN_PASS_LENGTH} and {MAX_PASS_LENGTH} characters long.')
 
+    """ Check invalid characters.  """
     for letter in traveller_email:
         if letter not in EMAIL_CHARACTERS:
             return format_res_err(event, 'EmailBadFormat', f'The email of the account contains invalid characters.')
-        
+
     """ Determine which id the email is associated with. """
     traveller_id = ''
 
