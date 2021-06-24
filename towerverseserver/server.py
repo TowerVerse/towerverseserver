@@ -35,7 +35,7 @@ from json.decoder import JSONDecodeError
 from socket import gethostbyname, gethostname
 
 """ Specifying variable types. """
-from typing import Dict, List
+from typing import Callable, Dict, List
 
 """ Generating account IDs. """
 from random import choice
@@ -156,6 +156,12 @@ current_ref: str = None
 
 """ Email-related, filled in at setup_email. """
 email_smtp: SMTP = None
+
+""" Account-only events. These are only used if the requestee is logged in to an account, otherwise an error is thrown. Filled in with the account_only decorator. """
+account_events: Dict[str, Callable] = {}
+
+""" No-account-events. These are only used if the requestee is NOT logged in to an account, otherwise an error is thrown. Filled in with the no_account_only decorator. """
+no_account_events: Dict[str, Callable] = {}
 
 """ Utilities """
 
@@ -278,7 +284,7 @@ def gen_id() -> str:
 
     return result_id
 
-def check_account(request_ip: str) -> bool:
+def has_account(request_ip: str) -> bool:
     """Checks whether or not an IP is associated with an account.
 
     Args:
@@ -394,8 +400,46 @@ def check_password(password: str) -> list:
     if not len(password) >= MIN_PASS_LENGTH or not len(password) <= MAX_PASS_LENGTH:
         return ['PasswordExceedsLimit', f'Traveller password must be between {MIN_PASS_LENGTH} and {MAX_PASS_LENGTH} characters long.']
 
+""" Decorators """
+
+def account_only(event: Callable):
+    """Decorator. Marks an event as only accessible with an account. Overwrites duplicates. Must be passed without transforming the event name first.
+
+    Args:
+        event (Callable): The event to mark.
+    """
+    name = event.__name__
+    def wrapper(event: Callable):
+
+        """ Don't mind if it overwrites another one, just warn. """
+        if name in account_events:
+            print(f'The event name: {name} is already in account_events. Consider checking for duplicates to prevent possible errors.')
+
+        account_events[name] = event
+
+    return wrapper(event)
+
+def no_account_only(event: Callable):
+    """Decorator. Marks an event as only accessible without an account. Overwrites duplicates. Must be passed without transforming the event name first.
+
+    Args:
+        event (Callable): The event to mark.
+    """
+    name = event.__name__
+
+    def wrapper(event: Callable):
+
+        """ Don't mind if it overwrites another one, just warn. """
+        if name in no_account_events:
+            print(f'The event name: {name} is already in no_account_events. Consider checking for duplicates to prevent possible errors.')
+
+        no_account_events[name] = event
+
+    return wrapper(event)
+
 """ Events """
 
+@no_account_only
 def event_create_traveller(event: str, traveller_name: str, traveller_email: str, traveller_password: str, wss: WebSocketServerProtocol):
     """Schedules an account for creation, after it's verified with verifyTraveller.
 
@@ -412,13 +456,9 @@ def event_create_traveller(event: str, traveller_name: str, traveller_email: str
         createTravellerNameExceedsLimit: The provided name exceeds the current name length limitations.
         createTravellerEmailExceedsLimit: The provided name exceeds the current email length limitations.
         createTravellerPasswordExceedsLimit: The provided password exceeds the current password length limitations.
-        createTravellerAlreadyLoggedIn: The IP is already logged in to another account.
         createTravellerNameBadFormat: The name of the account contains invalid characters.
         createTravellerEmailBadFormat: The email of the account contains invalid characters.
     """
-
-    if check_account(wss.remote_address[0]):
-            return format_res_err(event, 'AlreadyLoggedIn', 'You are currently logged in. Logout and try again.')
 
     """ Remember to keep the strip methods, we need the original traveller name. """
     if not len(traveller_name.strip()) >= MIN_ACCOUNT_LENGTH or not len(traveller_name.strip()) <= MAX_ACCOUNT_LENGTH:
@@ -491,6 +531,7 @@ def event_create_traveller(event: str, traveller_name: str, traveller_email: str
 
     return format_res(event, travellerId=traveller_id)
 
+@no_account_only
 def event_login_traveller(event: str, traveller_email: str, traveller_password: str, wss: WebSocketServerProtocol):
     """Logs in a websocket connection to a traveller account.
 
@@ -503,7 +544,6 @@ def event_login_traveller(event: str, traveller_email: str, traveller_password: 
 
         loginTravellerNotFound: The traveller with the required ID could not be found.
         loginTravellerInvalidPassword: The given password doesn't match the original one.
-        loginTravellerAlreadyLoggedIn: The requestee is already logged into an account.
         loginTravellerAccountTaken: The target account is already taken by another IP.
         loginTravellerPasswordExceedsLimit: The provided password exceeds current password length limitations.
         loginTravellerEmailBadFormat: The email of the account contains invalid characters.
@@ -559,10 +599,6 @@ def event_login_traveller(event: str, traveller_email: str, traveller_password: 
         for key, item in wss_accounts.items():
             if item == traveller_id:
                 return format_res_err(event, 'AccountTaken', 'Another user has already logged into this account.')
-        
-        """ Check if the requestee is already logged into an account. """
-        if check_account(wss.remote_address[0]):
-            return format_res_err(event, 'AlreadyLoggedIn', 'You are currently logged in. Logout and try again.')
     
         """ Link the IP to an account. """
         wss_accounts[wss.remote_address[0]] = traveller_id
@@ -571,68 +607,7 @@ def event_login_traveller(event: str, traveller_email: str, traveller_password: 
 
     return format_res_err(event, 'InvalidPassword', f'The password is invalid.')
 
-def event_logout_traveller(event: str, wss: WebSocketClientProtocol):
-    """Logs out a user from his associated traveller, if any. 
-
-    Possible Responses:
-        logoutTravellerReply: The IP has successfully logged out of the associated account.
-
-        logoutTravellerNoAccount: There is no account associated with this IP address.
-    """
-    if check_account(wss.remote_address[0]):
-        del wss_accounts[wss.remote_address[0]]
-
-        return format_res(event)
-    return format_res_err(event, 'NoAccount', 'There is no account associated with this IP.')
-
-def event_fetch_traveller(event: str, traveller_id: str):
-    """Fetches a traveller's info, if he exists in the database.
-
-    Args:
-        traveller_id (str): The id of the traveller to fetch info from.
-
-    Possible Responses:
-        fetchTravellerReply: Info about a traveller has been successfully fetched.
-
-        fetchTravellerNotFound: The traveller with the required ID could not be found.
-    """
-    traveller_name = ''
-
-    if IS_LOCAL:
-        if traveller_id in travellers:
-            traveller_name = travellers[traveller_id].traveller_name
-    else:
-        if traveller_id in get_users():
-            traveller_name = get_users()[traveller_id]['travellerName']
-
-    if traveller_name:
-        return format_res(event, travellerName=traveller_name, travellerId=traveller_id)
-    return format_res_err(event, 'NotFound', f'Traveller with id {traveller_id} not found.')
-
-def event_fetch_travellers(event: str):
-    """Fetches every single traveller's info.
-        
-    Possible Responses:
-        fetchTravellersReply: The existing traveller IDs have been successfully fetched.
-    """
-    return format_res(event, travellerIds=[id for id in travellers] if IS_LOCAL else [id for id in get_users()])
-
-def event_total_travellers(event: str):
-    """Returns the number of created traveller accounts.
-        
-    Possible Responses:
-        totalTravellersReply: The number of existing travellers has been successfully fetched.
-    """
-    return format_res(event, totalTravellers=len(travellers) if IS_LOCAL else len(get_users()))
-
-def event_online_travellers(event: str):
-    """Returns the number of online travellers.
-    
-    Possible Responses:
-        onlineTravellersReply: The number of online travellers at the moment.
-    """
-    return format_res(event, onlineTravellers=len(wss_accounts))
-
+@no_account_only
 def event_verify_traveller(event: str, traveller_id: str, traveller_code: str, wss: WebSocketServerProtocol):
     """Verifies a traveller account, if present and the code is correct.
 
@@ -674,6 +649,69 @@ def event_verify_traveller(event: str, traveller_id: str, traveller_code: str, w
     else:
         return format_res_err(event, 'CodeExceedsLimit', f'The verification code must be exactly {VERIFICATION_CODE_LENGTH} characters.')
 
+@account_only
+def event_logout_traveller(event: str, wss: WebSocketClientProtocol):
+    """Logs out a user from his associated traveller, if any. 
+
+    Possible Responses:
+        logoutTravellerReply: The IP has successfully logged out of the associated account.
+    """
+    del wss_accounts[wss.remote_address[0]]
+
+    return format_res(event)
+
+@account_only
+def event_fetch_travellers(event: str):
+    """Fetches every single traveller's info.
+        
+    Possible Responses:
+        fetchTravellersReply: The existing traveller IDs have been successfully fetched.
+    """
+    return format_res(event, travellerIds=[id for id in travellers] if IS_LOCAL else [id for id in get_users()])
+
+@account_only
+def event_fetch_traveller(event: str, traveller_id: str):
+    """Fetches a traveller's info, if he exists in the database.
+
+    Args:
+        traveller_id (str): The id of the traveller to fetch info from.
+
+    Possible Responses:
+        fetchTravellerReply: Info about a traveller has been successfully fetched.
+
+        fetchTravellerNotFound: The traveller with the required ID could not be found.
+    """
+    traveller_name = ''
+
+    if IS_LOCAL:
+        if traveller_id in travellers:
+            traveller_name = travellers[traveller_id].traveller_name
+    else:
+        if traveller_id in get_users():
+            traveller_name = get_users()[traveller_id]['travellerName']
+
+    if traveller_name:
+        return format_res(event, travellerName=traveller_name, travellerId=traveller_id)
+    return format_res_err(event, 'NotFound', f'Traveller with id {traveller_id} not found.')
+
+@account_only
+def event_total_travellers(event: str):
+    """Returns the number of created traveller accounts.
+        
+    Possible Responses:
+        totalTravellersReply: The number of existing travellers has been successfully fetched.
+    """
+    return format_res(event, totalTravellers=len(travellers) if IS_LOCAL else len(get_users()))
+
+@account_only
+def event_online_travellers(event: str):
+    """Returns the number of online travellers.
+    
+    Possible Responses:
+        onlineTravellersReply: The number of online travellers at the moment.
+    """
+    return format_res(event, onlineTravellers=len(wss_accounts))
+
 """ Main """
 
 async def request_switcher(wss: WebSocketClientProtocol, data: dict):
@@ -690,6 +728,8 @@ async def request_switcher(wss: WebSocketClientProtocol, data: dict):
         EventNotFound: The given event could not be found.
         EventUnknownError: There was an error processing the event.
         FormatError: The format of the error is incorrect.
+        AccountOnly: The requested event requires that this IP be associated with an account.
+        NoAccountOnly: The requested event requires that this IP NOT be associated with an account.
     """
 
     """ Refuse to process dictionaries without an event key, which must be atleast 1 character long. """
@@ -699,60 +739,70 @@ async def request_switcher(wss: WebSocketClientProtocol, data: dict):
     except:
         return
 
+    """ Transform it early on. """
+    transformed_event = transform_to_call(event)
+
+    """ Find the function first to run some checks. """
+    target_function: function = None
+    
+    """ Check if it's in one of the decorator lists which prohibit access. Don't pass the transformed one. """
+
+    if transformed_event in account_events:
+        if has_account(wss.remote_address[0]):
+            target_function = account_events[transformed_event]
+        else:
+            return format_res_err(event, 'AccountOnly', 'You must login to an account first before using this event.', True)
+
+    elif transformed_event in no_account_events:
+        if not has_account(wss.remote_address[0]):
+            target_function = no_account_events[transformed_event]
+        else:
+            return format_res_err(event, 'NoAccountOnly', 'You must logout of your current account first before using this event.', True)
+
+    else:
+        """ Events MUST contain one decorator or the other, throw an error. """
+        return format_res_err(event, 'EventNotFound', 'This event doesn\'t exist.', True)
+
+    """ Check if arguments are given. """
+    target_arg_names = getfullargspec(target_function).args
+
+    """ Keyword arguments to pass to the function. """
+    target_args = {}
+
+    for arg, value in data.items():
+        if transform_to_call(arg, True) in target_arg_names:
+            arg_to_add = transform_to_call(arg, True)
+                
+            """ Preserve event name. """
+            if arg == 'event':
+                arg_to_add = arg
+
+            target_args[arg_to_add] = value
+
+    """ Custom arguments to pass manually. """
+    if 'wss' in target_arg_names:
+        target_args['wss'] = wss
+
+    """ Check for arguments before calling, the call may not error but some arguments may be empty. """
+    args_errored = check_loop_data(target_args, target_arg_names)
+
+    if args_errored:
+        return format_res_err(event, 'FormatError', args_errored, True)
+
     try:
-        """ Check if arguments are given. """
-        target_function: function = globals()[transform_to_call(event)]
-        
-        target_arg_names = getfullargspec(target_function).args
+        return target_function(**target_args)
+    except Exception as e:
 
-        """ Keyword arguments to pass to the function. """
-        target_args = {}
+        """ Create bug report. """
+        if IS_LOCAL or IS_TEST:
+            print_error(f'Error occured while calling {event}', e)
+        else:
+            try:
+                mdb.logs.insert_one({f'bug-{str(uuid4())}': f'{e.__class__.__name__}{e}'})
+            except:
+                print_error_and_exit('Fatal database error', e)
 
-        for arg, value in data.items():
-            if transform_to_call(arg, True) in target_arg_names:
-                arg_to_add = transform_to_call(arg, True)
-                    
-                """ Preserve event name. """
-                if arg == 'event':
-                    arg_to_add = arg
-
-                target_args[arg_to_add] = value
-
-        """ Custom arguments to pass manually. """
-        if 'wss' in target_arg_names:
-            target_args['wss'] = wss
-
-        """ Check for arguments before calling, the call may not error but some arguments may be empty. """
-        args_errored = check_loop_data(target_args, target_arg_names)
-
-        if args_errored:
-            return format_res_err(event, 'FormatError', args_errored, True)
-
-        try:
-            return target_function(**target_args)
-        except Exception as e:
-
-            """ Create bug report. """
-            if IS_LOCAL or IS_TEST:
-                print_error(f'Error occured while calling {event}', e)
-            else:
-                try:
-                    mdb.logs.insert_one({f'bug-{str(uuid4())}': f'{e.__class__.__name__}{e}'})
-                except:
-                    print_error_and_exit('Fatal database error', e)
-
-            return format_res_err(event, 'EventUnknownError', 'Unknown internal server error.', True)
-
-    except KeyError:
-        """ Provide the user with the available events, in a seperate key to be able to split them. """
-        possible_events = [transform_to_original(event.replace('event_', '')) for event in globals() if event.startswith('event_')]
-
-        events_response = ''
-
-        for index, ev in enumerate(possible_events):
-            events_response = f"{events_response}{ev}|" if index + 1 < len(possible_events) else f"{events_response}{ev}"
-
-        return format_res_err(event, 'EventNotFound', 'This event doesn\'t exist.', True, possibleEvents=events_response)
+        return format_res_err(event, 'EventUnknownError', 'Unknown internal server error.', True)
 
 async def serve(wss: WebSocketClientProtocol, path: str) -> None:
     """Called only by websockets.serve.
@@ -823,7 +873,7 @@ async def serve(wss: WebSocketClientProtocol, path: str) -> None:
             """ Don't remove traveller from IP requests, prevent spam. """
 
             """ Remove a traveller from the linked accounts list, not online anymore. Only for production servers. """
-            if check_account(wss.remote_address[0]) and not IS_LOCAL:
+            if has_account(wss.remote_address[0]) and not IS_LOCAL:
                 del wss_accounts[wss.remote_address[0]]
 
             print(f'A traveller has disconnected. Code: {e.code} | Travellers online: {len(wss_accounts)}')
@@ -909,6 +959,7 @@ async def task_cleanup_temp_accounts() -> None:
         accounts_to_create.clear()
         await asyncio.sleep(TEMP_ACCOUNT_CLEANUP_INTERVAL)
 
+""" Entry point. """
 if __name__ == '__main__':
     server_type = 'PRODUCTION'
     
