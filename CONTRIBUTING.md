@@ -1,4 +1,4 @@
-# Ways to contribute to TowerVerseServer
+# Ways to contribute to OpenDogeServer
 
 ## Make changes to the server with code
 
@@ -26,7 +26,7 @@
 
 ### Pushing changes
 
-- **Make tests for new responses and see if they pass with ```pytest towerverseserver/tests```**
+- **Make tests for new responses and see if they pass with ```pytest opendogeserver/tests```**
 
 - **If everything works, type ```git push```**
 
@@ -38,4 +38,4 @@
 
 ## Help OpenDogeServer without coding
 
-- **Suggest ideas in the [Issues](https://github.com/TowerVerse/towerverseserver/issues) tab.**
+- **Suggest ideas in the [Issues](https://github.com/OpenDoge/opendogeserver/issues) tab.**

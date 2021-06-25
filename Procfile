@@ -1,1 +1,1 @@
-web python towerverseserver/server.py
+web python opendogeserver/server.py

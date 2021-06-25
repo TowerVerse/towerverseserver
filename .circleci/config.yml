@@ -13,8 +13,7 @@ jobs:
     steps:
       - checkout
       - run: |
-          pip install .
           pip install .[tests]
-          python3 towerverseserver/server.py --local --test &
-          pytest towerverseserver/tests
+          python3 opendogeserver/server.py &
+          pytest opendogeserver/tests
           kill $!
