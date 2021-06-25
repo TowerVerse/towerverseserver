@@ -130,6 +130,9 @@ account_events: Dict[str, Callable] = {}
 """ No-account-events. These are only used if the requestee is NOT logged in to an account, otherwise an error is thrown. Filled in with the no_account_only decorator. """
 no_account_events: Dict[str, Callable] = {}
 
+""" List of all decorators, checked by request_switcher. """
+decorators_list: List[str] = ['account', 'no_account']
+
 """ Utilities which need server variables to work. """
 
 def format_res(event_name: str, event_reply: str = 'Reply', **kwargs) -> dict:
@@ -211,9 +214,9 @@ async def send_email(to: str, title: str, content: List[str]) -> None:
     except EmailNotValidError as e:
         utils.print_error('Invalid email provided to send_email, aborting operation', e)
 
-""" Decorators """
+""" Decorators and checks. """
 
-def account_only(event: Callable):
+def account(event: Callable):
     """Decorator. Marks an event as only accessible with an account. Overwrites duplicates. Must be passed without transforming the event name first.
 
     Args:
@@ -231,7 +234,12 @@ def account_only(event: Callable):
 
     return wrapper(event)
 
-def no_account_only(event: Callable):
+def account_check(event: str, wss: WebSocketClientProtocol) -> bool:
+    """account_only decorator check. """
+    if not has_account(wss.remote_address[0]):
+        return format_res_err(event, 'AccountOnly', 'You must login to an account first before using this event.', True)
+
+def no_account(event: Callable):
     """Decorator. Marks an event as only accessible without an account. Overwrites duplicates. Must be passed without transforming the event name first.
 
     Args:
@@ -249,9 +257,14 @@ def no_account_only(event: Callable):
 
     return wrapper(event)
 
+def no_account_check(event: str, wss: WebSocketClientProtocol) -> bool:
+    """ no_account_only decorator check. """
+    if has_account(wss.remote_address[0]):
+        return format_res_err(event, 'NoAccountOnly', 'You must logout of your current account first before using this event.', True)
+
 """ Events """
 
-@no_account_only
+@no_account
 def event_create_traveller(event: str, traveller_name: str, traveller_email: str, traveller_password: str):
     """Schedules an account for creation, after it's verified with verifyTraveller.
 
@@ -343,7 +356,7 @@ def event_create_traveller(event: str, traveller_name: str, traveller_email: str
 
     return format_res(event, travellerId=traveller_id)
 
-@no_account_only
+@no_account
 def event_login_traveller(event: str, traveller_email: str, traveller_password: str, wss: WebSocketServerProtocol):
     """Logs in a websocket connection to a traveller account.
 
@@ -419,7 +432,7 @@ def event_login_traveller(event: str, traveller_email: str, traveller_password: 
 
     return format_res_err(event, 'InvalidPassword', f'The password is invalid.')
 
-@no_account_only
+@no_account
 def event_verify_traveller(event: str, traveller_id: str, traveller_code: str, wss: WebSocketServerProtocol):
     """Verifies a traveller account, if present and the code is correct.
 
@@ -461,7 +474,7 @@ def event_verify_traveller(event: str, traveller_id: str, traveller_code: str, w
     else:
         return format_res_err(event, 'CodeExceedsLimit', f'The verification code must be exactly {VERIFICATION_CODE_LENGTH} characters.')
 
-@account_only
+@account
 def event_logout_traveller(event: str, wss: WebSocketClientProtocol):
     """Logs out a user from his associated traveller, if any. 
 
@@ -472,7 +485,7 @@ def event_logout_traveller(event: str, wss: WebSocketClientProtocol):
 
     return format_res(event)
 
-@account_only
+@account
 def event_fetch_travellers(event: str):
     """Fetches every single traveller's info.
         
@@ -481,7 +494,7 @@ def event_fetch_travellers(event: str):
     """
     return format_res(event, travellerIds=[id for id in travellers] if IS_LOCAL else [id for id in get_users()])
 
-@account_only
+@account
 def event_fetch_traveller(event: str, traveller_id: str):
     """Fetches a traveller's info, if he exists in the database.
 
@@ -506,7 +519,7 @@ def event_fetch_traveller(event: str, traveller_id: str):
         return format_res(event, travellerName=traveller_name, travellerId=traveller_id)
     return format_res_err(event, 'NotFound', f'Traveller with id {traveller_id} not found.')
 
-@account_only
+@account
 def event_total_travellers(event: str):
     """Returns the number of created traveller accounts.
         
@@ -515,7 +528,7 @@ def event_total_travellers(event: str):
     """
     return format_res(event, totalTravellers=len(travellers) if IS_LOCAL else len(get_users()))
 
-@account_only
+@account
 def event_online_travellers(event: str):
     """Returns the number of online travellers.
     
@@ -558,20 +571,32 @@ async def request_switcher(wss: WebSocketClientProtocol, data: dict):
     target_function: function = None
     
     """ Check if it's in one of the decorator lists which prohibit access. Don't pass the transformed one. """
+    for decorator in decorators_list:
 
-    if transformed_event in account_events:
-        if has_account(wss.remote_address[0]):
-            target_function = account_events[transformed_event]
-        else:
-            return format_res_err(event, 'AccountOnly', 'You must login to an account first before using this event.', True)
+        """ Find if the requested event is in one of the decorators. """
+        decorator_events = dict(globals())[f'{decorator}_events']
+        
+        if transformed_event in decorator_events:
 
-    elif transformed_event in no_account_events:
-        if not has_account(wss.remote_address[0]):
-            target_function = no_account_events[transformed_event]
-        else:
-            return format_res_err(event, 'NoAccountOnly', 'You must logout of your current account first before using this event.', True)
+            """ Found, run checks. """
+            decorator_check_func = dict(globals())[f'{decorator}_check']
 
-    else:
+            decorator_check_args = {'event': event}
+
+            """ Pass requested client. """
+            if 'wss' in getfullargspec(decorator_check_func).args:
+                decorator_check_args['wss'] = wss
+
+            decorator_check_result = decorator_check_func(**decorator_check_args)
+
+            """ If it has returned something, it should be formatted already to be sent right back to the requestee as an error. """
+            if decorator_check_result:
+                return decorator_check_result
+
+            """ If it has passed, go on to assign the function to call. """
+            target_function = decorator_events[transformed_event]
+
+    if not target_function:
         """ Events MUST contain one decorator or the other, throw an error. """
         return format_res_err(event, 'EventNotFound', 'This event doesn\'t exist.', True)
 
