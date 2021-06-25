@@ -37,9 +37,8 @@ from socket import gethostbyname, gethostname
 """ Specifying variable types. """
 from typing import Callable, Dict, List
 
-""" Generating account IDs. """
-from random import choice
-from string import ascii_letters, ascii_uppercase, digits, whitespace
+""" Checking letters. """
+from string import whitespace
 
 """ Inspect functions. """
 from inspect import getfullargspec
@@ -80,7 +79,9 @@ from aioyagmail import SMTP
 
 """ LOCAL MODULES """
 
+import towerverseserver.utils as utils
 from towerverseserver.classes import *
+from towerverseserver.constants import *
 
 """ Global variables. """
 
@@ -101,37 +102,6 @@ travellers: Dict[str, Traveller] = {}
 """ The registered towers/rooms. """
 towers: Dict[str, Tower] = {}
 
-""" ONLY USED FOR THE LOCAL VERSION """
-
-""" Max requests until IP ratelimits are cleared. """
-IP_RATELIMIT_MAX = 10
-
-""" Seconds between resetting IP ratelimits. """
-IP_RATELIMIT_CLEANUP_INTERVAL = 5
-
-""" Seconds between resetting IP requests. """
-IP_REQUESTS_CLEANUP_INTERVAL = 60 * 60 # every minute
-
-""" Seconds between resetting IP account links. """
-IP_ACCOUNT_CLEANUP_INTERVAL = 60 * 60 * 24 # every day
-
-""" Seconds between resetting accounts which aren't verified. """
-TEMP_ACCOUNT_CLEANUP_INTERVAL = 60 * 60 * 24 * 7 # every week
-
-""" Account-related. """
-ACCOUNT_CHARACTERS = f'{ascii_letters}{digits}!^* '
-MIN_ACCOUNT_LENGTH = 3
-MAX_ACCOUNT_LENGTH = 20
-
-EMAIL_CHARACTERS = f'{ascii_letters}{digits}@.'
-MIN_EMAIL_LENGTH = 10
-MAX_EMAIL_LENGTH = 60
-
-MIN_PASS_LENGTH = 10
-MAX_PASS_LENGTH = 50
-
-VERIFICATION_CODE_LENGTH = 6
-
 """ Accounts linked to IPs. """
 wss_accounts: Dict[str, str] = {}
 
@@ -144,10 +114,7 @@ IS_LOCAL = '--local' in argv
 """ Used to facilitate, do not use this for prod/testing dev. Rather, use it with pytest. """
 IS_TEST = '--test' in argv
 
-""" MongoDB-related, mdbclient and mdb are filled in at setup_mongo. """
-mongo_project_name = 'towerverse.kx1he'
-mongo_database_name = 'towerverse-db'
-mongo_client_extra_args = 'retryWrites=true&w=majority'
+""" MongoDB-related, filled in at setup_mongo. """
 mdbclient: MongoClient = None
 mdb: Database = None
 
@@ -163,46 +130,7 @@ account_events: Dict[str, Callable] = {}
 """ No-account-events. These are only used if the requestee is NOT logged in to an account, otherwise an error is thrown. Filled in with the no_account_only decorator. """
 no_account_events: Dict[str, Callable] = {}
 
-""" Utilities """
-
-def transform_to_call(target: str, is_argument: bool = False) -> str:
-    """Transforms a python string to a function/argument name.
-
-    Args:
-        target (str): The target string.
-        is_argument (bool): Whether or not it's going to be passed as an argument. Defaults to False.
-
-    Returns:
-        str: The formatted string.
-    """
-    target_list = list(target)
-
-    for index, letter in enumerate(target_list):
-        if letter in ascii_uppercase:
-            target_list[index] = letter.lower()
-            target_list.insert(index, '_')
-
-    result = ''.join([letter for letter in target_list])
-
-    return f"event_{result}" if not is_argument else result
-
-def transform_to_original(target: str) -> str:
-    """Transforms a previously-modified-by-transform_to_call argument to its original state.
-
-    Args:
-        target (str): The argument to restore.
-
-    Returns:
-        str: The restored agument.
-    """
-    target_list = list(target)
-
-    for index, letter in enumerate(target_list):
-        if letter == '_':
-            target_list.pop(index)
-            target_list[index] = target_list[index].upper()
-
-    return ''.join([letter for letter in target_list])
+""" Utilities which need server variables to work. """
 
 def format_res(event_name: str, event_reply: str = 'Reply', **kwargs) -> dict:
     """Formats a response to be sent in an appropriate form, with optional keyword arguments.
@@ -242,64 +170,6 @@ def format_res_err(event_name: str, event_reply: str, error_message: str, is_no_
 
     return dumps(result_data)
 
-def check_loop_data(data: dict, keys: List[str]):
-    """Checks if a number of keys are present in a dictionary.
-
-    Args:
-        data (dict): The dictionary to check against.
-        keys (List[str]): The keys which must be present the dictionary.
-
-    Returns:
-        None/str: None if the keys are present else an error string.
-    """
-    keys_needed = []
-
-    for key in keys:
-        if key not in data:
-            keys_needed.append(transform_to_original(key))
-            continue
-
-        try:
-            if len(data[key].strip()) == 0:
-                return f'{transform_to_original(key)} value mustn\'t be empty.'
-        except AttributeError:
-            """ WebSocketServerProtocol probably, passed by default in functions which ask for it. """
-            continue
-
-    """ Much better visualization by showing them all at once. """
-    if keys_needed:
-        result_response = 'Data must contain '
-
-        for key in keys_needed:
-            result_to_append = ''
-
-            if keys_needed[0] == key:
-                result_to_append = key
-
-            elif keys_needed[-1] == key:
-                result_to_append = f' and {key}.'
-
-            else:
-                result_to_append = f', {key}'
-
-            result_response += result_to_append
-
-        return result_response
-    return None
-
-def gen_id() -> str:
-    """Generates an ID with 15 digits for use when creating an account.
-
-    Returns:
-        str: The resulting ID.
-    """
-    result_id = ''
-
-    for i in range(15):
-        result_id += str(choice(f'{ascii_letters}{digits}'))
-
-    return result_id
-
 def has_account(request_ip: str) -> bool:
     """Checks whether or not an IP is associated with an account.
 
@@ -327,20 +197,6 @@ def get_users() -> dict:
 
     return result_users
 
-def gen_verification_code() -> str:
-    """Generates a verification code with length VERIFICATION_CODE_LENGTH.
-
-    Returns:
-        str: The verification code.
-    """
-    
-    verification_code = ''
-    
-    for i in range(VERIFICATION_CODE_LENGTH):
-        verification_code += str(choice(digits))
-
-    return verification_code
-
 async def send_email(to: str, title: str, content: List[str]) -> None:
     """Sends an email, asynchronously.
 
@@ -353,68 +209,7 @@ async def send_email(to: str, title: str, content: List[str]) -> None:
         validate_email(to)
         email_smtp.send(to, title, content)
     except EmailNotValidError as e:
-        print_error('Invalid email provided to send_email, aborting operation', e)
-
-def print_error(print_msg: str, exc: Exception) -> None:
-    """Prints an error and continues normal execution of the program.
-
-    Args:
-        print_msg (str): The message to print.
-        exc (Exception): The exception to print below the print_msg.
-    """
-    if isinstance(exc, Exception):
-        print(f'{print_msg}: \n{exc.__class__.__name__}{exc}')
-    else:
-        print('Invalid exception passed to print_error, aborting operation.')
-
-def print_error_and_exit(exit_msg: str, exc: Exception) -> None:
-    """Prints an error and forcefully exits program execution. ONLY FOR DESTRUCTIVE EXCEPTIONS.
-
-    Args:
-        exit_msg (str): The message to print.
-        exc (Exception): The exception to print below the exit_msg.
-    """
-    if isinstance(exc, Exception):
-        print(f'{exit_msg}, exiting: \n{exc.__class__.__name__}: {exc}')
-        exit()
-    else:
-        print('Invalid exception passed to print_error_and_exit, aborting operation.')
-
-def format_password(password: str) -> str:
-    """Formats a provided password for checking later on with check_password.
-
-    Args:
-        password (str): The target password.
-
-    Returns:
-        str: The formatted password.
-    """
-
-    """ Get the version without spaces L/R. """
-    password = password.strip()
-
-    """ Remove extra whitespace. """
-    temp_password = ''
-
-    for letter in password:
-        if letter not in whitespace:
-            temp_password += letter
-
-    password = temp_password
-
-    return password
-
-def check_password(password: str) -> list:
-    """Tests a password with multiple cases. Should be used in combination with format_password.
-
-    Args:
-        password (str): The target password.
-
-    Returns:
-        list: The error, if one occured where: [0] the name of the error and [1] the description of the error.
-    """
-    if not len(password) >= MIN_PASS_LENGTH or not len(password) <= MAX_PASS_LENGTH:
-        return ['PasswordExceedsLimit', f'Traveller password must be between {MIN_PASS_LENGTH} and {MAX_PASS_LENGTH} characters long.']
+        utils.print_error('Invalid email provided to send_email, aborting operation', e)
 
 """ Decorators """
 
@@ -491,10 +286,10 @@ def event_create_traveller(event: str, traveller_name: str, traveller_email: str
     except EmailNotValidError as e:
         return format_res_err(event, 'EmailInvalid', str(e))
 
-    traveller_password = format_password(traveller_password)
+    traveller_password = utils.format_password(traveller_password)
 
     """ Pass all the password checks and return if there's an error returned. """
-    traveller_password_checks = check_password(traveller_password)
+    traveller_password_checks = utils.check_password(traveller_password)
 
     if traveller_password_checks:
         return format_res_err(event, traveller_password_checks[0], traveller_password_checks[1])
@@ -533,13 +328,13 @@ def event_create_traveller(event: str, traveller_name: str, traveller_email: str
         return format_res_err(event, 'EmailInUse', 'This email is already in use by another account.')
 
     """ Visible by fetchTravellers and its not at all private. """
-    traveller_id = gen_id() if not IS_TEST else '123'
+    traveller_id = utils.gen_id() if not IS_TEST else '123'
 
     """ rounds=13 so as to exceed the 214ms bare limit according to: https://security.stackexchange.com/questions/3959/recommended-of-iterations-when-using-pkbdf2-sha256. """
     hashed_password = hashpw(bytes(traveller_password, encoding='ascii'), gensalt(rounds=13))
 
     """ Add the account to a temporary dictionary until it's verified. Also generate the target verification code. """
-    traveller_verification = gen_verification_code() if not IS_TEST else '123456'
+    traveller_verification = utils.gen_verification_code() if not IS_TEST else '123456'
     accounts_to_create[traveller_id] = TempTraveller(traveller_id, traveller_name, traveller_email, hashed_password, traveller_verification)
 
     """ Send email verification code, doesn't need to block. Don't do this for tests. """
@@ -585,7 +380,7 @@ def event_login_traveller(event: str, traveller_email: str, traveller_password: 
     traveller_password = temp_traveller_password
 
     """ Pass all the password checks and return if there's an error returned. """
-    traveller_password_checks = check_password(traveller_password)
+    traveller_password_checks = utils.check_password(traveller_password)
 
     if traveller_password_checks:
         return format_res_err(event, traveller_password_checks[0], traveller_password_checks[1])
@@ -757,7 +552,7 @@ async def request_switcher(wss: WebSocketClientProtocol, data: dict):
         return
 
     """ Transform it early on. """
-    transformed_event = transform_to_call(event)
+    transformed_event = utils.transform_to_call(event)
 
     """ Find the function first to run some checks. """
     target_function: function = None
@@ -787,8 +582,8 @@ async def request_switcher(wss: WebSocketClientProtocol, data: dict):
     target_args = {}
 
     for arg, value in data.items():
-        if transform_to_call(arg, True) in target_arg_names:
-            arg_to_add = transform_to_call(arg, True)
+        if utils.transform_to_call(arg, True) in target_arg_names:
+            arg_to_add = utils.transform_to_call(arg, True)
                 
             """ Preserve event name. """
             if arg == 'event':
@@ -801,7 +596,7 @@ async def request_switcher(wss: WebSocketClientProtocol, data: dict):
         target_args['wss'] = wss
 
     """ Check for arguments before calling, the call may not error but some arguments may be empty. """
-    args_errored = check_loop_data(target_args, target_arg_names)
+    args_errored = utils.check_loop_data(target_args, target_arg_names)
 
     if args_errored:
         return format_res_err(event, 'FormatError', args_errored, True)
@@ -812,12 +607,12 @@ async def request_switcher(wss: WebSocketClientProtocol, data: dict):
 
         """ Create bug report. """
         if IS_LOCAL or IS_TEST:
-            print_error(f'Error occured while calling {event}', e)
+            utils.print_error(f'Error occured while calling {event}', e)
         else:
             try:
                 mdb.logs.insert_one({f'bug-{str(uuid4())}': f'{e.__class__.__name__}{e}'})
             except:
-                print_error_and_exit('Fatal database error', e)
+                utils.print_error_and_exit('Fatal database error', e)
 
         return format_res_err(event, 'EventUnknownError', 'Unknown internal server error.', True)
 
@@ -938,10 +733,11 @@ def setup_email(email_address: str, email_password: str) -> None:
     try:
         validate_email(email_address)
     except EmailNotValidError as e:
-        print_error_and_exit('Error in setup_email', e)
+        utils.print_error_and_exit('Error in setup_email', e)
 
     global email_smtp
     email_smtp = SMTP(email_address, email_password)
+    
     print('Successfully setup email account.')
 
 """ Tasks """
@@ -1020,7 +816,7 @@ if __name__ == '__main__':
     try:
         loop.run_until_complete(start_server)
     except Exception as e:
-        print_error_and_exit('Server failed to start', e)
+        utils.print_error_and_exit('Server failed to start', e)
 
     try:
         print(f'Server running at: {gethostbyname(gethostname())}:{port}')
@@ -1033,4 +829,4 @@ if __name__ == '__main__':
     except KeyboardInterrupt:
         exit()
     except Exception as e:
-        print_error_and_exit('Server shut down due to an error', e)
+        utils.print_error_and_exit('Server shut down due to an error', e)
