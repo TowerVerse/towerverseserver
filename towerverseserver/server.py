@@ -204,7 +204,7 @@ def transform_to_original(target: str) -> str:
 
     return ''.join([letter for letter in target_list])
 
-def format_res(event_name: str, event_reply: str = 'Reply',**kwargs) -> dict:
+def format_res(event_name: str, event_reply: str = 'Reply', **kwargs) -> dict:
     """Formats a response to be sent in an appropriate form, with optional keyword arguments.
 
     Args:
@@ -268,7 +268,23 @@ def check_loop_data(data: dict, keys: List[str]):
 
     """ Much better visualization by showing them all at once. """
     if keys_needed:
-        return f'Data must contain {" and ".join([key for key in keys_needed])}.'
+        result_response = 'Data must contain '
+
+        for key in keys_needed:
+            result_to_append = ''
+
+            if keys_needed[0] == key:
+                result_to_append = key
+
+            elif keys_needed[-1] == key:
+                result_to_append = f' and {key}.'
+
+            else:
+                result_to_append = f', {key}'
+
+            result_response += result_to_append
+
+        return result_response
     return None
 
 def gen_id() -> str:
@@ -409,11 +425,12 @@ def account_only(event: Callable):
         event (Callable): The event to mark.
     """
     name = event.__name__
+
     def wrapper(event: Callable):
 
         """ Don't mind if it overwrites another one, just warn. """
         if name in account_events:
-            print(f'The event name: {name} is already in account_events. Consider checking for duplicates to prevent possible errors.')
+            print(f'The event name {name} is already in account_events. Consider checking for duplicates to prevent possible errors.')
 
         account_events[name] = event
 
@@ -431,7 +448,7 @@ def no_account_only(event: Callable):
 
         """ Don't mind if it overwrites another one, just warn. """
         if name in no_account_events:
-            print(f'The event name: {name} is already in no_account_events. Consider checking for duplicates to prevent possible errors.')
+            print(f'The event name {name} is already in no_account_events. Consider checking for duplicates to prevent possible errors.')
 
         no_account_events[name] = event
 
@@ -440,7 +457,7 @@ def no_account_only(event: Callable):
 """ Events """
 
 @no_account_only
-def event_create_traveller(event: str, traveller_name: str, traveller_email: str, traveller_password: str, wss: WebSocketServerProtocol):
+def event_create_traveller(event: str, traveller_name: str, traveller_email: str, traveller_password: str):
     """Schedules an account for creation, after it's verified with verifyTraveller.
 
     Args:
