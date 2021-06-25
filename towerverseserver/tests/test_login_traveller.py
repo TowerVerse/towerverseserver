@@ -5,11 +5,11 @@ from json import dumps, loads
 import pytest
 
 @pytest.mark.asyncio
-@pytest.mark.run(order=6)
+@pytest.mark.run(order=8)
 async def test_create_traveller_response():
     async with websockets.connect('ws://localhost:5000') as wss:
 
-        await wss.send(dumps({'event': 'loginTraveller', 'travellerEmail': 'testemail@gmail.com',
+        await wss.send(dumps({'event': 'loginTraveller', 'travellerEmail': 'someemailwhichdoesntexist@gmail.com',
                             'travellerPassword': 'testpassword123'}))
 
         response = loads(await wss.recv())
