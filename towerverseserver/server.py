@@ -707,7 +707,6 @@ async def serve(wss: WebSocketClientProtocol, path: str) -> None:
             result = ''
 
             """ Prevent malicious intents. """
-            print(ip_requests)
             if ip_requests[wss.remote_address[0]] > IP_RATELIMIT_MAX:
 
                 """ Send it in-place, dont allow it to go further into request_switcher. """
@@ -830,7 +829,7 @@ def setup_email(email_address: str, email_password: str) -> None:
 """ Tasks """
 
 async def task_cleanup_ip_ratelimits() -> None:
-    """Resets the IP ratelimits for every traveller. """
+    """ SETS every key found in the ip_requests dictionary to 0. """
 
     while True:
         for ip in ip_requests:
@@ -839,21 +838,21 @@ async def task_cleanup_ip_ratelimits() -> None:
         await asyncio.sleep(IP_RATELIMIT_CLEANUP_INTERVAL)
 
 async def task_cleanup_ip_requests() -> None:
-    """Resets the IP requests dictionary to delete cached IPs. """
+    """ CLEARS every key found in the ip_requests dictionary. """
 
     while True:
         ip_requests.clear()
         await asyncio.sleep(IP_REQUESTS_CLEANUP_INTERVAL)
 
 async def task_cleanup_account_links() -> None:
-    """Resets the accounts linked to each IP. """
+    """ CLEARS the linked IPs and accounts dictionary. """
 
     while True:
         wss_accounts.clear()
         await asyncio.sleep(IP_ACCOUNT_CLEANUP_INTERVAL)
 
 async def task_cleanup_temp_accounts() -> None:
-    """ Deletes accounts which have not been verified. """
+    """ DELETES accounts which have not been verified. """
     
     while True:
         accounts_to_create.clear()
