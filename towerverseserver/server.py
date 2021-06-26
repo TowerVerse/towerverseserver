@@ -43,7 +43,7 @@ from json.decoder import JSONDecodeError
 from socket import gethostbyname, gethostname
 
 """ Specifying variable types. """
-from typing import Callable, Dict, List
+from typing import Callable, Dict, List, Set
 
 """ Checking letters. """
 from string import whitespace
@@ -56,9 +56,6 @@ from socket import gaierror
 
 """ Generating account hashes. """
 from uuid import uuid4
-
-""" Getting command-line arguments. """
-from sys import argv
 
 """ Logging levels. """
 from logging import StreamHandler, getLogger
@@ -140,10 +137,10 @@ wss_accounts: Dict[str, str] = {}
 accounts_to_create: Dict[str, TempTraveller] = {}
 
 """ Whether or not this is a locally-hosted server. """
-IS_LOCAL = '--local' in argv
+IS_LOCAL = parser_args.local
 
 """ Used to facilitate, do not use this for prod/testing dev. Rather, use it with pytest. """
-IS_TEST = '--test' in argv
+IS_TEST = parser_args.test
 
 """ MongoDB-related, filled in at setup_mongo. """
 mdbclient: MongoClient = None
@@ -162,7 +159,7 @@ account_events: Dict[str, Callable] = {}
 no_account_events: Dict[str, Callable] = {}
 
 """ List of all decorators, checked by request_switcher. """
-decorators_list: List[str] = ['account', 'no_account']
+decorators_list: Set[str] = set({'account', 'no_account'})
 
 """ Utilities which need server variables to work. """
 
@@ -183,7 +180,7 @@ def format_res(event_name: str, event_reply: str = 'Reply', **kwargs) -> dict:
 
     return dumps(result_data)
 
-def format_res_err(event_name: str, event_reply: str, error_message: str, is_no_event_response: bool = False, **kwargs) -> dict:
+def format_res_err(event_name: str, event_reply: str, error_message: str, is_no_event_response: bool = False, no_original_event: bool = False, **kwargs) -> dict:
     """Same as above but for errors.
 
     Args:
@@ -191,16 +188,21 @@ def format_res_err(event_name: str, event_reply: str, error_message: str, is_no_
         event_reply (str): The string to concatenate to the event_name which will be the reply.
         error_message (str): The message of the error.
         is_no_event_response (bool): If True, event_reply wont be concatenated to event_name. This is helpful for general errors.
+        no_original_event (bool): Whether or not the originalEvent key should be provided. Useful when you can't make it out.
 
     Returns:
         dict: The formatted error response.
     """
 
-    result_data = dict(data={'errorMessage': error_message, **kwargs}, event=f'{event_name}{event_reply}' if not is_no_event_response else f'{event_reply}',
-                        originalEvent=event_name)
+    result_data = dict(data={'errorMessage': error_message, **kwargs}, event=f'{event_name}{event_reply}'
+                                                                        if not is_no_event_response
+                                                                        else f'{event_reply}')
 
     if current_ref:
         result_data['ref'] = current_ref
+
+    if not no_original_event:
+        result_data['originalEvent'] = event_name
 
     return dumps(result_data)
 
@@ -243,7 +245,7 @@ async def send_email(to: str, title: str, content: List[str]) -> None:
         validate_email(to)
         email_smtp.send(to, title, content)
     except EmailNotValidError as e:
-        utils.print_error('Invalid email provided to send_email, aborting operation', e)
+        utils.log_error('Invalid email provided to send_email, aborting operation', e)
 
 """ Decorators and checks. """
 
@@ -253,9 +255,10 @@ def account(event: Callable):
     Args:
         event (Callable): The event to mark.
     """
-    name = event.__name__
 
     def wrapper(event: Callable):
+
+        name = event.__name__
 
         """ Don't mind if it overwrites another one, just warn. """
         if name in account_events:
@@ -276,11 +279,11 @@ def no_account(event: Callable):
     Args:
         event (Callable): The event to mark.
     """
-    name = event.__name__
 
     def wrapper(event: Callable):
 
-        """ Don't mind if it overwrites another one, just warn. """
+        name = event.__name__
+
         if name in no_account_events:
             log.warn(f'The event name {name} is already in no_account_events. Consider checking for duplicates to prevent possible errors.')
 
@@ -362,7 +365,7 @@ def event_create_traveller(event: str, traveller_name: str, traveller_email: str
                 is_email_taken = True
                 break
 
-    """ Also check in travellers which are awaiting authentication. """
+    """ Also check in travellers who are awaiting authentication. """
     for key, item in accounts_to_create.items():
         if item.traveller_email == traveller_email:
             is_email_taken = True
@@ -379,6 +382,7 @@ def event_create_traveller(event: str, traveller_name: str, traveller_email: str
 
     """ Add the account to a temporary dictionary until it's verified. Also generate the target verification code. """
     traveller_verification = utils.gen_verification_code() if not IS_TEST else '123456'
+
     accounts_to_create[traveller_id] = TempTraveller(traveller_id, traveller_name, traveller_email, hashed_password, traveller_verification)
 
     """ Send email verification code, doesn't need to block. Don't do this for tests. """
@@ -503,14 +507,14 @@ def event_verify_traveller(event: str, traveller_id: str, traveller_code: str, w
         else:
             return format_res_err(event, 'InvalidCode', 'The provided code is invalid.')
     else:
-        return format_res_err(event, 'CodeExceedsLimit', f'The verification code must be exactly {VERIFICATION_CODE_LENGTH} characters.')
+        return format_res_err(event, 'CodeExceedsLimit', f'The verification code must consist of exactly {VERIFICATION_CODE_LENGTH} characters.')
 
 @account
 def event_logout_traveller(event: str, wss: WebSocketClientProtocol):
-    """Logs out a user from his associated traveller, if any. 
+    """Logs out a user from his associated traveller account. 
 
     Possible Responses:
-        logoutTravellerReply: The IP has successfully logged out of the associated account.
+        logoutTravellerReply: The IP has been successfully unliked from its associated account.
     """
     del wss_accounts[wss.remote_address[0]]
 
@@ -548,6 +552,7 @@ def event_fetch_traveller(event: str, traveller_id: str):
 
     if traveller_name:
         return format_res(event, travellerName=traveller_name, travellerId=traveller_id)
+
     return format_res_err(event, 'NotFound', f'Traveller with id {traveller_id} not found.')
 
 @account
@@ -583,17 +588,20 @@ async def request_switcher(wss: WebSocketClientProtocol, data: dict):
     Possible Responses:
         EventNotFound: The given event could not be found.
         EventUnknownError: There was an error processing the event.
-        FormatError: The format of the error is incorrect.
-        AccountOnly: The requested event requires that this IP be associated with an account.
-        NoAccountOnly: The requested event requires that this IP NOT be associated with an account.
+        FormatError: The format of the request is incorrect.
+        EventEmpty: The event key is empty.
+
+        Decorator checks:
+            AccountOnly: The requested event requires that this IP be associated with an account.
+            NoAccountOnly: The requested event requires that this IP NOT be associated with an account.
     """
 
     """ Refuse to process dictionaries without an event key, which must be atleast 1 character long. """
     try:
         event = data['event']
         assert len(data['event']) > 0
-    except:
-        return
+    except (KeyError, AssertionError):
+        return format_res_err('', 'EventEmpty', 'The event key is empty or it isn\'t provided.', True, True)
 
     """ Transform it early on. """
     transformed_event = utils.transform_to_call(event)
@@ -663,12 +671,12 @@ async def request_switcher(wss: WebSocketClientProtocol, data: dict):
 
         """ Create bug report. """
         if IS_LOCAL or IS_TEST:
-            utils.print_error(f'Error occured while calling {event}', e)
+            utils.log_error(f'Error occured while calling {event}', e)
         else:
             try:
                 mdb.logs.insert_one({f'bug-{str(uuid4())}': f'{e.__class__.__name__}{e}'})
             except:
-                utils.print_error_and_exit('Fatal database error', e)
+                utils.log_error_and_exit('Fatal database error', e)
 
         return format_res_err(event, 'EventUnknownError', 'Unknown internal server error.', True)
 
@@ -678,6 +686,10 @@ async def serve(wss: WebSocketClientProtocol, path: str) -> None:
     Args:
         wss (WebSocketClientProtocol): The websocket client.
         path (str): The path which the client wants to access.
+
+    Possible Responses:
+        JSONFormatError: The request contains invalid JSON.
+        RatelimitError: The IP has reached the max requests allowed at a specified time length.
     """
 
     global wss_accounts
@@ -692,25 +704,39 @@ async def serve(wss: WebSocketClientProtocol, path: str) -> None:
         try:
             response = await wss.recv()
 
+            result = ''
+
             """ Prevent malicious intents. """
+            print(ip_requests)
             if ip_requests[wss.remote_address[0]] > IP_RATELIMIT_MAX:
+
+                """ Send it in-place, dont allow it to go further into request_switcher. """
+                await wss.send(format_res_err('', 'RatelimitError', 'You are ratelimited.', True, True))
                 continue
 
             ip_requests[wss.remote_address[0]] += 1
 
-            try:
-                data = loads(response)
-            except JSONDecodeError:
+            """ Don't even handle empty requests, only ratelimit them. """
+            if len(response.strip()) == 0:
                 continue
 
+            """ Determine data validity. """
             try:
+                data = loads(response)
+
                 assert isinstance(data, dict)
                 
                 """ Prevent strange values. """
                 for key, item in data.items():
                     assert isinstance(key, str)
                     assert isinstance(item, str)
-            except AssertionError:
+
+            except (JSONDecodeError, AssertionError):
+                result = format_res_err('', 'JSONFormatError', 'The request contains invalid JSON.', True, True)
+
+            """ Send the premature error straight away to prevent errors with data later on. """
+            if result:
+                await wss.send(result)
                 continue
 
             global current_ref
@@ -719,7 +745,9 @@ async def serve(wss: WebSocketClientProtocol, path: str) -> None:
             if 'ref' in data:
                 current_ref = data['ref']
 
-            result = await request_switcher(wss, data)
+            """ Check for previous responses. """
+            if not result:
+                result = await request_switcher(wss, data)
 
             """ If nothing is returned, skip this call. """
             if not result:
@@ -733,7 +761,10 @@ async def serve(wss: WebSocketClientProtocol, path: str) -> None:
 
             result = loads(result)
 
-            log.info(f"[{total_requests}] {result['originalEvent']}: {result['event']}")
+            try:
+                log.info(f"[{total_requests}] {result['originalEvent']}: {result['event']}")
+            except KeyError:
+                log.info(f'[{total_requests}] Invalid JSON request provided.')
 
             current_ref = None
 
@@ -789,7 +820,7 @@ def setup_email(email_address: str, email_password: str) -> None:
     try:
         validate_email(email_address)
     except EmailNotValidError as e:
-        utils.print_error_and_exit('Error in setup_email', e)
+        utils.log_error_and_exit('Error in setup_email', e)
 
     global email_smtp
     email_smtp = SMTP(email_address, email_password)
@@ -873,7 +904,7 @@ if __name__ == '__main__':
     try:
         loop.run_until_complete(start_server)
     except Exception as e:
-        utils.print_error_and_exit('Server failed to start', e)
+        utils.log_error_and_exit('Server failed to start', e)
 
     try:
         log.info(f'Server running at: {gethostbyname(gethostname())}:{port}')
@@ -886,4 +917,4 @@ if __name__ == '__main__':
     except KeyboardInterrupt:
         exit()
     except Exception as e:
-        utils.print_error_and_exit('Server shut down due to an error', e)
+        utils.log_error_and_exit('Server shut down due to an error', e)

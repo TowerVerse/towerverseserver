@@ -146,7 +146,7 @@ def gen_verification_code() -> str:
 
     return verification_code
 
-def print_error(print_msg: str, exc: Exception) -> None:
+def log_error(print_msg: str, exc: Exception) -> None:
     """Prints an error and continues normal execution of the program.
 
     Args:
@@ -158,7 +158,7 @@ def print_error(print_msg: str, exc: Exception) -> None:
     else:
         log.warn('Invalid exception passed to print_error, aborting operation.')
 
-def print_error_and_exit(exit_msg: str, exc: Exception) -> None:
+def log_error_and_exit(exit_msg: str, exc: Exception) -> None:
     """Prints an error and forcefully exits program execution. ONLY FOR DESTRUCTIVE EXCEPTIONS.
 
     Args:
