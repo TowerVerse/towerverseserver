@@ -1,11 +1,12 @@
 # TowerVerseServer
-![GitHub](https://img.shields.io/github/license/TowerVerse/towerverseserver) ![GitHub Repo stars](https://img.shields.io/github/stars/TowerVerse/towerverseserver?style=social) ![GitHub forks](https://img.shields.io/github/forks/TowerVerse/towerverseserver?style=social) ![GitHub commit activity](https://img.shields.io/github/commit-activity/m/TowerVerse/towerverseserver) ![GitHub Sponsors](https://img.shields.io/github/sponsors/TowerVerse) ![GitHub issues](https://img.shields.io/github/issues/TowerVerse/towerverseserver)
+![GitHub](https://img.shields.io/github/license/TowerVerse/towerverseserver) ![GitHub Repo stars](https://img.shields.io/github/stars/TowerVerse/towerverseserver?style=social) ![GitHub forks](https://img.shields.io/github/forks/TowerVerse/towerverseserver?style=social) ![GitHub commit activity](https://img.shields.io/github/commit-activity/m/TowerVerse/towerverseserver) ![Lines of code](https://img.shields.io/tokei/lines/github/TowerVerse/towerverseserver?branch=master)
+![GitHub issues](https://img.shields.io/github/issues/TowerVerse/towerverseserver) ![GitHub Sponsors](https://img.shields.io/github/sponsors/TowerVerse)
 
 ## Branch statuses
 
-### Master: ![CircleCI](https://circleci.com/gh/TowerVerse/towerverseserver.svg?branch=master&style=shield) ![Lines of code](https://img.shields.io/tokei/lines/github/TowerVerse/towerverseserver?branch=master)
+### Master: ![CircleCI](https://circleci.com/gh/TowerVerse/towerverseserver.svg?branch=master&style=shield)
 
-### Beta: ![CircleCI](https://circleci.com/gh/TowerVerse/towerverseserver.svg?branch=beta&style=shield) ![Lines of code](https://img.shields.io/tokei/lines/github/TowerVerse/towerverseserver?branch=beta)
+### Beta: ![CircleCI](https://circleci.com/gh/TowerVerse/towerverseserver.svg?branch=beta&style=shield)
 
 ## What's this?
 
