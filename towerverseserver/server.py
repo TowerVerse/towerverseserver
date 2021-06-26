@@ -96,7 +96,7 @@ parser = ArgumentParser(description='The main file of the server of TowerVerse.'
 
 parser.add_argument('--local', help='This option should be passed whenever the server is developed locally. With this option, the server makes use of runtime variables rather than MongoDB. Small reminder that this option still requires that email environmental variables be set.', action='store_true')
 parser.add_argument('--test', help='This option disables removing IP account links between disconnects to facilitate pytest. Most of the time, it shouldn\'t be used for anything else. This option must be used with --local.', action='store_true')
-parser.add_argument('--log', help='Specifies the level of logging where: 0 Silent 10 Verbose 20 Info 30 Warning 40 Error. Defaults to 10.', type=int, default=10, choices=[0, 10, 20, 30, 40])
+parser.add_argument('--log', help='Specifies the level of logging where: 10 Verbose 20 Info 30 Warning 40 Error 50 Silent. Defaults to 10.', type=int, default=10, choices=[10, 20, 30, 40, 50])
 
 parser_args = parser.parse_args()
 
@@ -108,7 +108,9 @@ log = getLogger(LOGGER_NAME)
 
 log.setLevel(parser_args.log)
 
-log.addHandler(logHandler)
+""" Silent, ignore handler. """
+if not parser_args.log == 50:
+    log.addHandler(logHandler)
 
 log.info(f'Modules loaded in {int(round(time() - imports_start_time, 2) * 1000)} ms.')
 
