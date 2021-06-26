@@ -21,9 +21,17 @@ from typing import List
 from random import choice
 from string import ascii_letters, ascii_uppercase, digits, whitespace
 
+""" Logging. """
+from logging import getLogger
+
 """ LOCAL MODULES """
 
 from towerverseserver.constants import *
+
+""" GLOBAL VARIABLES """
+
+""" The logger of the server. """
+log = getLogger(LOGGER_NAME)
 
 """ Utilities """
 
@@ -142,26 +150,26 @@ def print_error(print_msg: str, exc: Exception) -> None:
     """Prints an error and continues normal execution of the program.
 
     Args:
-        print_msg (str): The message to print.
-        exc (Exception): The exception to print below the print_msg.
+        print_msg (str): The message to log.
+        exc (Exception): The exception to log below the print_msg.
     """
     if isinstance(exc, Exception):
-        print(f'{print_msg}: \n{exc.__class__.__name__}{exc}')
+        log.error(f'{print_msg}: \n{exc.__class__.__name__}{exc}')
     else:
-        print('Invalid exception passed to print_error, aborting operation.')
+        log.warn('Invalid exception passed to print_error, aborting operation.')
 
 def print_error_and_exit(exit_msg: str, exc: Exception) -> None:
     """Prints an error and forcefully exits program execution. ONLY FOR DESTRUCTIVE EXCEPTIONS.
 
     Args:
-        exit_msg (str): The message to print.
-        exc (Exception): The exception to print below the exit_msg.
+        exit_msg (str): The message to log.
+        exc (Exception): The exception to log below the exit_msg.
     """
     if isinstance(exc, Exception):
-        print(f'{exit_msg}, exiting: \n{exc.__class__.__name__}: {exc}')
+        log.error(f'{exit_msg}, exiting: \n{exc.__class__.__name__}: {exc}')
         exit()
     else:
-        print('Invalid exception passed to print_error_and_exit, aborting operation.')
+        log.warn('Invalid exception passed to print_error_and_exit, aborting operation.')
 
 def format_password(password: str) -> str:
     """Formats a provided password for checking later on with check_password.
@@ -198,4 +206,3 @@ def check_password(password: str) -> list:
     """
     if not len(password) >= MIN_PASS_LENGTH or not len(password) <= MAX_PASS_LENGTH:
         return ['PasswordExceedsLimit', f'Traveller password must be between {MIN_PASS_LENGTH} and {MAX_PASS_LENGTH} characters long.']
-

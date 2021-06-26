@@ -10,9 +10,9 @@ File description:
     The main file of the server of TowerVerse.
 
 Extra info:
-    Pass --local in order to disable database-related methods and --test to use it with pytest.
+    Run this file with the command line argument -h to see available options.
 
-    Otherwise set the following environmental variables for MongoDB and Email functions:
+    For the production server set the following environmental variables for MongoDB and Email functions(emails should be enabled for local development aswell):
 
         TOWERVERSE_EMAIL_ADDRESS: The email address to send emails with,
         TOWERVERSE_EMAIL_PASSWORD: The password of the email address,
@@ -21,8 +21,16 @@ Extra info:
 
 """
 
+""" Get the time for imports to be loaded. """
+from time import time
+
+imports_start_time = time()
+
 """ BUILT-IN MODULES """
 import asyncio
+
+""" Command-line options. """
+from argparse import ArgumentParser
 
 """ For hosting. """
 from os import environ
@@ -46,14 +54,14 @@ from inspect import getfullargspec
 """ To prevent a simple exception at startup. """
 from socket import gaierror
 
-""" Performance reports. """
-from time import time
-
 """ Generating account hashes. """
 from uuid import uuid4
 
 """ Getting command-line arguments. """
 from sys import argv
+
+""" Logging levels. """
+from logging import StreamHandler, getLogger
 
 """ 3RD-PARTY MODULES """
 
@@ -82,6 +90,27 @@ from aioyagmail import SMTP
 import towerverseserver.utils as utils
 from towerverseserver.classes import *
 from towerverseserver.constants import *
+
+""" Setup optional command-line arguments. """
+parser = ArgumentParser(description='The main file of the server of TowerVerse.')
+
+parser.add_argument('--local', help='This option should be passed whenever the server is developed locally. With this option, the server makes use of runtime variables rather than MongoDB. Small reminder that this option still requires that email environmental variables be set.', action='store_true')
+parser.add_argument('--test', help='This option disables removing IP account links between disconnects to facilitate pytest. Most of the time, it shouldn\'t be used for anything else. This option must be used with --local.', action='store_true')
+parser.add_argument('--log', help='Specifies the level of logging where: 0 Silent 10 Verbose 20 Info 30 Warning 40 Error. Defaults to 10.', type=int, default=10, choices=[0, 10, 20, 30, 40])
+
+parser_args = parser.parse_args()
+
+""" Used to print logs. """
+logHandler = StreamHandler()
+
+""" Available by other scripts aswell. """
+log = getLogger(LOGGER_NAME)
+
+log.setLevel(parser_args.log)
+
+log.addHandler(logHandler)
+
+log.info(f'Modules loaded in {int(round(time() - imports_start_time, 2) * 1000)} ms.')
 
 """ Global variables. """
 
@@ -228,7 +257,7 @@ def account(event: Callable):
 
         """ Don't mind if it overwrites another one, just warn. """
         if name in account_events:
-            print(f'The event name {name} is already in account_events. Consider checking for duplicates to prevent possible errors.')
+            log.warn(f'The event name {name} is already in account_events. Consider checking for duplicates to prevent possible errors.')
 
         account_events[name] = event
 
@@ -251,7 +280,7 @@ def no_account(event: Callable):
 
         """ Don't mind if it overwrites another one, just warn. """
         if name in no_account_events:
-            print(f'The event name {name} is already in no_account_events. Consider checking for duplicates to prevent possible errors.')
+            log.warn(f'The event name {name} is already in no_account_events. Consider checking for duplicates to prevent possible errors.')
 
         no_account_events[name] = event
 
@@ -651,7 +680,7 @@ async def serve(wss: WebSocketClientProtocol, path: str) -> None:
 
     global wss_accounts
 
-    print(f'A traveller has connected. Travellers online: {len(wss_accounts)}')
+    log.info(f'A traveller has connected. Travellers online: {len(wss_accounts)}')
 
     """ Set to 0 ONLY if the ip doesn't exist since previous IPs are stored even if it disconnects. """
     if wss.remote_address[0] not in ip_requests:
@@ -702,7 +731,7 @@ async def serve(wss: WebSocketClientProtocol, path: str) -> None:
 
             result = loads(result)
 
-            print(f"[{total_requests}] {result['originalEvent']}: {result['event']}")
+            log.info(f"[{total_requests}] {result['originalEvent']}: {result['event']}")
 
             current_ref = None
 
@@ -713,7 +742,7 @@ async def serve(wss: WebSocketClientProtocol, path: str) -> None:
             if has_account(wss.remote_address[0]) and not IS_LOCAL:
                 del wss_accounts[wss.remote_address[0]]
 
-            print(f'A traveller has disconnected. Code: {e.code} | Travellers online: {len(wss_accounts)}')
+            log.info(f'A traveller has disconnected. Code: {e.code} | Travellers online: {len(wss_accounts)}')
 
             break
 
@@ -738,14 +767,14 @@ def setup_mongo(mongodb_username: str, mongodb_password: str) -> None:
         """ Prevent cold-booting MongoDB's first request in responses, use a random collection. """
         mdb.some_random_collection.count_documents({})
 
-        print(f'Successfully setup MongoDB in {int(round(time() - start, 2) * 1000)} ms.')
+        log.info(f'Successfully setup MongoDB in {int(round(time() - start, 2) * 1000)} ms.')
     
     except OperationFailure:
-        print('Invalid username or password provided for MongoDB, exiting.')
+        log.error('Invalid username or password provided for MongoDB, exiting.')
         exit()
 
     except ConfigurationError:
-        print('The TowerVerse database may be temporarily down, exiting.')
+        log.error('The TowerVerse database may be temporarily down, exiting.')
         exit()
 
 def setup_email(email_address: str, email_password: str) -> None:
@@ -763,7 +792,7 @@ def setup_email(email_address: str, email_password: str) -> None:
     global email_smtp
     email_smtp = SMTP(email_address, email_password)
     
-    print('Successfully setup email account.')
+    log.info('Successfully setup email account.')
 
 """ Tasks """
 
@@ -799,6 +828,7 @@ async def task_cleanup_temp_accounts() -> None:
 
 """ Entry point. """
 if __name__ == '__main__':
+
     server_type = 'PRODUCTION'
     
     if IS_LOCAL:
@@ -807,11 +837,11 @@ if __name__ == '__main__':
     if IS_TEST:
         server_type = 'TEST'
         
-    print(f'Server type: {server_type}')
+    log.info(f'Server type: {server_type}')
 
     if not IS_TEST:
         if not 'TOWERVERSE_EMAIL_ADDRESS' in environ or not 'TOWERVERSE_EMAIL_PASSWORD' in environ:
-            print('Environmental variables TOWERVERSE_EMAIL_ADDRESS and TOWERVERSE_EMAIL_PASSWORD must be set in order for email capabilities to function, exiting.')
+            log.error('Environmental variables TOWERVERSE_EMAIL_ADDRESS and TOWERVERSE_EMAIL_PASSWORD must be set in order for email capabilities to function, exiting.')
             exit()
         else:
             setup_email(environ['TOWERVERSE_EMAIL_ADDRESS'], environ['TOWERVERSE_EMAIL_PASSWORD'])
@@ -819,7 +849,7 @@ if __name__ == '__main__':
         """ Setup MongoDB. """
         if not IS_LOCAL:
             if not 'TOWERVERSE_MONGODB_USERNAME' in environ or not 'TOWERVERSE_MONGODB_PASSWORD' in environ:
-                print('Environmental variables TOWERVERSE_MONGODB_USERNAME and TOWERVERSE_MONGODB_PASSWORD must be set in order for email capabilities to function, exiting.')
+                log.error('Environmental variables TOWERVERSE_MONGODB_USERNAME and TOWERVERSE_MONGODB_PASSWORD must be set in order for email capabilities to function, exiting.')
                 exit()
             else:
                 setup_mongo(environ['TOWERVERSE_MONGODB_USERNAME'], environ['TOWERVERSE_MONGODB_PASSWORD'])
@@ -836,7 +866,7 @@ if __name__ == '__main__':
         loop.create_task(task())
 
     if len(registered_tasks) > 0:
-        print('Tasks started.')
+        log.info('Tasks started.')
 
     try:
         loop.run_until_complete(start_server)
@@ -844,9 +874,9 @@ if __name__ == '__main__':
         utils.print_error_and_exit('Server failed to start', e)
 
     try:
-        print(f'Server running at: {gethostbyname(gethostname())}:{port}')
+        log.info(f'Server running at: {gethostbyname(gethostname())}:{port}')
     except gaierror:
-        print(f'Server running at port: {port}')
+        log.info(f'Server running at port: {port}')
 
     """ Start the infinite server loop. """
     try:

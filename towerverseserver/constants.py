@@ -48,6 +48,9 @@ MAX_PASS_LENGTH = 50
 
 VERIFICATION_CODE_LENGTH = 6
 
+""" Log related. """
+LOGGER_NAME = 'towerverse-server'
+
 """ MongoDB-related. """
 mongo_project_name = 'towerverse.kx1he'
 mongo_database_name = 'towerverse-db'
