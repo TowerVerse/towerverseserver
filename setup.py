@@ -2,7 +2,7 @@ from setuptools import setup
 
 setup(
     name = 'towerverseserver',
-    version = '0.2a1',
+    version = '0.2a2',
     description = 'The server of TowerVerse, only used for development purposes.',
     author = 'Shadofer#0001',
     author_email = 'shadowrlrs@gmail.com',

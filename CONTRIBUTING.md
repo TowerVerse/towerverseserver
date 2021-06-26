@@ -10,17 +10,17 @@
 
 - **```cd {clone directory}```**
 
-- **```git switch beta``` to first put the pull request in a testing phase.**
+- **```git switch {latest version}``` to put the commits bundled with the rest, upcoming ones.**
 
-- **```pip install -e .``` Optional but speeds up changes (modifies the opendogeserver package everytime it's updated locally).**
+- **```pip install -e .``` Optional but speeds up changes (modifies the towerverseserver package everytime it's updated locally).**
 
-- **Make any changes you wish.**
+- **Make any changes you wish or check the [TowerVerseServer project](https://github.com/TowerVerse/towerverseserver/projects/1) to implement features placed in TODO/Ideas.**
 
 ### Coding style
 
 - **[Maintain pythonic code practises.](https://www.codementor.io/blog/pythonic-code-6yxqdoktzt)**
 
-- **Docstrings where needed.**
+- **Docstrings where needed (for readthedocs).**
 
 - **Explain your code and target in small comments.**
 

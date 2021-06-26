@@ -1,8 +1,21 @@
-from dataclasses import dataclass
+""" 
+License: GPL-3
 
-def check(items: dict):
-    for item, type in items:
-        assert isinstance(item, type)
+Maintainer: Shadofer#0001
+
+Contributors: 
+
+File description:
+    The classes of the server of TowerVerse.
+
+Extra info:
+    None
+"""
+
+""" BUILT-IN MODULES """
+
+""" A better way to use classes. """
+from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class Tower():
