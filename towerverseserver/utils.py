@@ -154,7 +154,7 @@ def log_error(print_msg: str, exc: Exception) -> None:
         exc (Exception): The exception to log below the print_msg.
     """
     if isinstance(exc, Exception):
-        log.error(f'{print_msg}: \n{exc.__class__.__name__}{exc}')
+        log.error(f'{print_msg}: \n{exc.__class__.__name__}: {exc}')
     else:
         log.warn('Invalid exception passed to print_error, aborting operation.')
 

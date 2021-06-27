@@ -247,6 +247,67 @@ async def send_email(to: str, title: str, content: List[str]) -> None:
     except EmailNotValidError as e:
         utils.log_error('Invalid email provided to send_email, aborting operation', e)
 
+def find_user(traveller_id: str, check_in_extra: bool = False) -> Traveller:
+    """Finds a user by id.
+
+    Args:
+        traveller_id (str): The traveller id.
+        check_in_extra (bool, optional): Also checks in extra dictionaries. Defaults to False.
+
+    Returns:
+        Traveller: The Traveller object, if the traveller is found.
+    """
+    traveller: Traveller = None
+
+    if IS_LOCAL:
+        if traveller_id in travellers:
+            target_acc = travellers[traveller_id]
+
+            traveller = Traveller(target_acc.traveller_id, target_acc.traveller_name, target_acc.traveller_email, target_acc.traveller_password)
+    else:
+        if traveller_id in get_users():
+            target_acc = get_users()[traveller_id]
+
+            traveller = Traveller(traveller_id, target_acc['travellerName'], target_acc['travellerEmail'], target_acc['travellerPassword'])
+
+    if check_in_extra:
+        if traveller_id in accounts_to_create:
+            target_acc = accounts_to_create[traveller_id]
+
+            traveller = Traveller(target_acc.traveller_id, target_acc.traveller_name, target_acc.traveller_email, target_acc.traveller_password)
+
+    return traveller
+
+def find_user_id_by_email(traveller_email: str, check_in_extra: bool = False) -> Traveller:
+    """Finds a traveller account by his email.
+
+    Args:
+        traveller_email (str): The traveller email.
+        check_in_extra (bool, optional): Also checks in extra dictionaries. Defaults to False.
+
+    Returns:
+        Traveller: The Traveller object, if he exists.
+    """
+    traveller: Traveller = None
+
+    if IS_LOCAL:
+        for key, item in travellers.items():
+            if item.traveller_email == traveller_email:
+                traveller = find_user(key)
+    else:
+        for key, item in get_users().items():
+            if item['travellerEmail'] == traveller_email:
+                traveller = find_user(key)
+
+    if check_in_extra:
+        for key, item in accounts_to_create.items():
+            if item.traveller_email == traveller_email:
+                find_user(key, True)
+
+
+
+    return traveller if traveller else None
+
 """ Decorators and checks. """
 
 def account(event: Callable):
@@ -350,28 +411,8 @@ def event_create_traveller(event: str, traveller_name: str, traveller_email: str
         if letter not in EMAIL_CHARACTERS:
             return format_res_err(event, 'EmailBadFormat', f'The email of the account contains invalid characters.')
 
-    """ Prevent duplicate emails. """
-    is_email_taken = False
-
-    """ Check in both db and local variables. """
-    if IS_LOCAL:
-        for key, item in travellers.items():
-            if item.traveller_email == traveller_email:
-                is_email_taken = True
-                break
-    else:
-        for key, item in get_users().items():
-            if item['travellerEmail'] == traveller_email:
-                is_email_taken = True
-                break
-
-    """ Also check in travellers who are awaiting authentication. """
-    for key, item in accounts_to_create.items():
-        if item.traveller_email == traveller_email:
-            is_email_taken = True
-            break
-
-    if is_email_taken:
+    """ Check in both db and local variables and those awaiting verification to prevent conflicts. """
+    if find_user_id_by_email(traveller_email, True):
         return format_res_err(event, 'EmailInUse', 'This email is already in use by another account.')
 
     """ Visible by fetchTravellers and its not at all private. """
@@ -402,7 +443,7 @@ def event_login_traveller(event: str, traveller_email: str, traveller_password: 
     Possible Responses:
         loginTravellerReply: The websocket has successfully connected to a traveller. No additional keys have to be passed for future account-related methods.
 
-        loginTravellerNotFound: The traveller with the required ID could not be found.
+        loginTravellerNotFound: The traveller with the requested ID could not be found.
         loginTravellerInvalidPassword: The given password doesn't match the original one.
         loginTravellerAccountTaken: The target account is already taken by another IP.
         loginTravellerPasswordExceedsLimit: The provided password exceeds current password length limitations.
@@ -430,31 +471,22 @@ def event_login_traveller(event: str, traveller_email: str, traveller_password: 
             return format_res_err(event, 'EmailBadFormat', f'The email of the account contains invalid characters.')
 
     """ Determine which id the email is associated with. """
-    traveller_id = ''
+    traveller = find_user_id_by_email(traveller_email)
 
-    if IS_LOCAL:
-        for key, item in travellers.items():
-            if item.traveller_email == traveller_email:
-                traveller_id = key
-    else:
-        for key, item in get_users().items():
-            if item['travellerEmail'] == traveller_email:
-                traveller_id = key
+    if not traveller:
+        return format_res_err(event, 'NotFound', f'The Traveller with email {traveller_email} could not be found.')
 
-    if len(traveller_id) == 0:
-        return format_res_err(event, 'NotFound', 'The specified traveller could not be found.')
-
-    if checkpw(bytes(traveller_password, encoding='ascii'), travellers[traveller_id].traveller_password if IS_LOCAL
-                                                        else get_users()[traveller_id]['travellerPassword']):
+    if checkpw(bytes(traveller_password, encoding='ascii'), travellers[traveller.traveller_id].traveller_password if IS_LOCAL
+                                                        else get_users()[traveller.traveller_id]['travellerPassword']):
         """ Check if someone has already logged into this account. """
         for key, item in wss_accounts.items():
-            if item == traveller_id:
+            if item == traveller.traveller_id:
                 return format_res_err(event, 'AccountTaken', 'Another user has already logged into this account.')
     
         """ Link the IP to an account. """
-        wss_accounts[wss.remote_address[0]] = traveller_id
+        wss_accounts[wss.remote_address[0]] = traveller.traveller_id
 
-        return format_res(event, travellerId=traveller_id)
+        return format_res(event, travellerId=traveller.traveller_id)
 
     return format_res_err(event, 'InvalidPassword', f'The password is invalid.')
 
@@ -470,12 +502,12 @@ def event_verify_traveller(event: str, traveller_id: str, traveller_code: str, w
         verifyTravellerReply: The email of the traveller has been successfully verified.
         
         verifyTravellerNotFound: The specified traveller could not be found.
-        verifyTravellerInvalidCode: The provided code is invalid.
+        verifyTravellerInvalidCode: The verification code is invalid.
         verifyTravellerCodeExceedsLimit: The code's length is not VERIFICATION_CODE_LENGTH.
     """
     
     if traveller_id not in accounts_to_create:
-        return format_res_err(event, 'NotFound', 'The specified traveller account could not be found.')
+        return format_res_err(event, 'NotFound', f'The Traveller with id {traveller_id} could not be found.')
 
     if len(traveller_code) == VERIFICATION_CODE_LENGTH:
         if accounts_to_create[traveller_id].traveller_code == traveller_code:
@@ -513,7 +545,7 @@ def event_logout_traveller(event: str, wss: WebSocketClientProtocol):
 
 @account
 def event_fetch_travellers(event: str):
-    """Fetches every single traveller's info.
+    """Fetches every single traveller's ID.
         
     Possible Responses:
         fetchTravellersReply: The existing traveller IDs have been successfully fetched.
@@ -532,17 +564,10 @@ def event_fetch_traveller(event: str, traveller_id: str):
 
         fetchTravellerNotFound: The traveller with the required ID could not be found.
     """
-    traveller_name = ''
+    traveller = find_user(traveller_id)
 
-    if IS_LOCAL:
-        if traveller_id in travellers:
-            traveller_name = travellers[traveller_id].traveller_name
-    else:
-        if traveller_id in get_users():
-            traveller_name = get_users()[traveller_id]['travellerName']
-
-    if traveller_name:
-        return format_res(event, travellerName=traveller_name, travellerId=traveller_id)
+    if traveller:
+        return format_res(event, travellerName=traveller.traveller_name, travellerId=traveller_id)
 
     return format_res_err(event, 'NotFound', f'Traveller with id {traveller_id} not found.')
 
@@ -698,11 +723,15 @@ async def serve(wss: WebSocketClientProtocol, path: str) -> None:
             result = ''
 
             """ Prevent malicious intents. """
-            if ip_requests[wss.remote_address[0]] > IP_RATELIMIT_MAX:
+            try:
+                if ip_requests[wss.remote_address[0]] > IP_RATELIMIT_MAX:
 
-                """ Send it in-place, dont allow it to go further into request_switcher. """
-                await wss.send(format_res_err('', 'RatelimitError', 'You are ratelimited.', True, True))
-                continue
+                    """ Send it in-place, dont allow it to go further into request_switcher. """
+                    await wss.send(format_res_err('', 'RatelimitError', 'You are ratelimited.', True, True))
+                    continue
+            except KeyError:
+                """ Weird error. """
+                ip_requests[wss.remote_address[0]] = 0
 
             ip_requests[wss.remote_address[0]] += 1
 
