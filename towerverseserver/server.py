@@ -304,8 +304,6 @@ def find_user_id_by_email(traveller_email: str, check_in_extra: bool = False) ->
             if item.traveller_email == traveller_email:
                 find_user(key, True)
 
-
-
     return traveller if traveller else None
 
 """ Decorators and checks. """
