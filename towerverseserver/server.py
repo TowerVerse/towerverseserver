@@ -415,17 +415,8 @@ def event_login_traveller(event: str, traveller_email: str, traveller_password: 
     except EmailNotValidError as e:
         return format_res_err(event, 'EmailInvalid', str(e))
 
-    """ We need the stripped down version here aswell. """
-    traveller_password = traveller_password.strip()
-
     """ Remove extra whitespace. """
-    temp_traveller_password = ''
-
-    for letter in traveller_password:
-        if letter not in whitespace:
-            temp_traveller_password += letter
-
-    traveller_password = temp_traveller_password
+    traveller_password = ''.join([letter for letter in traveller_password if letter not in whitespace])
 
     """ Pass all the password checks and return if there's an error returned. """
     traveller_password_checks = utils.check_password(traveller_password)
