@@ -24,6 +24,11 @@ from string import ascii_letters, ascii_uppercase, digits, whitespace
 """ Logging. """
 from logging import getLogger
 
+""" 3RD-PARTY MODULES """
+
+""" Validating emails. """
+from email_validator import EmailNotValidError, validate_email
+
 """ LOCAL MODULES """
 
 from towerverseserver.constants import *
@@ -95,10 +100,8 @@ def check_loop_data(data: dict, keys: List[str]) -> str:
             if len(data[key].strip()) == 0:
                 return f'{transform_to_original(key)} value mustn\'t be empty.'
         except AttributeError:
-            """ WebSocketServerProtocol probably, passed by default in functions which ask for it. """
             continue
 
-    """ Much better visualization by showing them all at once. """
     if keys_needed:
         result_response = 'Data must contain '
 
@@ -117,7 +120,6 @@ def check_loop_data(data: dict, keys: List[str]) -> str:
             result_response += result_to_append
 
         return result_response
-    return None
 
 def gen_id() -> str:
     """Generates an ID with 15 digits for use when creating an account.
@@ -180,20 +182,7 @@ def format_password(password: str) -> str:
     Returns:
         str: The formatted password.
     """
-
-    """ Get the version without spaces L/R. """
-    password = password.strip()
-
-    """ Remove extra whitespace. """
-    temp_password = ''
-
-    for letter in password:
-        if letter not in whitespace:
-            temp_password += letter
-
-    password = temp_password
-
-    return password
+    return ''.join([letter for letter in password if letter not in whitespace])
 
 def check_password(password: str) -> list:
     """Tests a password with multiple cases. Should be used in combination with format_password.
@@ -202,7 +191,46 @@ def check_password(password: str) -> list:
         password (str): The target password.
 
     Returns:
-        list: The error, if one occured where: [0] the name of the error and [1] the description of the error.
+        list: The error, if one occured, where: [0] the name of the error and [1] the description of the error.
     """
-    if not len(password) >= MIN_PASS_LENGTH or not len(password) <= MAX_PASS_LENGTH:
+    if not check_length(password, MIN_PASS_LENGTH, MAX_PASS_LENGTH):
         return ['PasswordExceedsLimit', f'Traveller password must be between {MIN_PASS_LENGTH} and {MAX_PASS_LENGTH} characters long.']
+
+def check_email(email: str) -> EmailNotValidError:
+    """Checks if an email has a valid format.
+
+    Args:
+        email (str): The target email.
+
+    Returns:
+        EmailNotValidError: The error, if any, which is thrown by email_validator.
+    """
+    try:
+        validate_email(email)
+    except EmailNotValidError as e:
+        return e
+
+def check_chars(target: str, target_chars: str) -> bool:
+    """Checks if the target string only contains target characters.
+
+    Args:
+        target (str): The target string.
+        target_chars (str): The target characters.
+
+    Returns:
+        bool: Whether or not it contains unknown characters.
+    """
+    return len([letter for letter in target if letter not in target_chars]) == 0
+
+def check_length(target: str, min: int, max: int) -> bool:
+    """Checks if the target string's length is appropriate.
+
+    Args:
+        target (str): The target string.
+        min (int): The minimum length.
+        max (int): The maximum length.
+
+    Returns:
+        bool: Whether or not it comes between the two limits.
+    """
+    return len(target) >= min and len(target) <= max
