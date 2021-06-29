@@ -302,7 +302,7 @@ def update_user(user_id: int, **kwargs) -> Traveller:
     users = get_users(True)
 
     if not user_id in users:
-        log.error('User id passed to update_user not found, aborting operation')
+        log.error('Invalid id has been passed to update_user, aborting operation')
         return
 
     traveller = users[user_id]
@@ -316,10 +316,7 @@ def update_user(user_id: int, **kwargs) -> Traveller:
         if key not in kwargs.keys() and key != 'mongoId':
             update_dict['$set'][user_id][key] = value
 
-    result = mdb.users.find_one_and_update({'_id': ObjectId(traveller['mongoId'])}, update_dict)
-
-    if result is None:
-        log.error('update_user failed.')
+    mdb.users.find_one_and_update({'_id': ObjectId(traveller['mongoId'])}, update_dict)
 
     return get_user(user_id)
 
@@ -775,11 +772,28 @@ def verify_traveller(event: str, traveller_email: str, traveller_code: str, wss:
     Possible Responses:
         verifyTravellerReply: The email of the traveller has been successfully verified.
         
+        verifyTravellerEmailExceedsLimit: The provided email exceeds the current name length limitations.
+        verifyTravellerEmailInvalidCharacters: The email of the account contains invalid characters.
+        verifyTravellerEmailInvalidFormat: The provided email is not formatted correctly. Possibly the domain name is omitted/invalid.
+
         verifyTravellerNotFound: The specified traveller could not be found.
         verifyTravellerCodeExceedsLimit: The code's length is not VERIFICATION_CODE_LENGTH.
         verifyTravellerInvalidCode: The verification code is invalid.
     """
     
+    traveller_email = traveller_email.strip()
+
+    if not utils.check_length(traveller_email, MIN_EMAIL_LENGTH, MAX_EMAIL_LENGTH):
+        return format_res_err(event, 'EmailExceedsLimit', length_invalid.format('Traveller email', MIN_EMAIL_LENGTH, MAX_EMAIL_LENGTH))
+
+    if not utils.check_chars(traveller_email, EMAIL_CHARACTERS):
+        return format_res_err(event, 'EmailInvalidCharacters', chars_invalid.format('The traveller email'))
+
+    traveller_email_error = utils.check_email(traveller_email)
+
+    if traveller_email_error:
+        return format_res_err(event, 'EmailInvalidError', str(traveller_email_error))
+
     if traveller_email not in accounts_to_create:
         return format_res_err(event, 'NotFound', f'The Traveller with email {traveller_email} could not be found.')
 
@@ -803,6 +817,42 @@ def verify_traveller(event: str, traveller_email: str, traveller_code: str, wss:
             return format_res_err(event, 'InvalidCode', 'The provided code is invalid.')
     else:
         return format_res_err(event, 'CodeExceedsLimit', f'The verification code must consist of exactly {VERIFICATION_CODE_LENGTH} characters.')
+
+@no_account
+def resend_traveller_code(event: str, traveller_email: str):
+    """Re-sends a traveller's verification code.
+
+    Possible Responses:
+        resendTravellerCodeReply: The code has been re-sent successfully.
+
+        resendTravellerCodeEmailExceedsLimit: The provided email exceeds the current name length limitations.
+        resendTravellerCodeEmailInvalidCharacters: The email of the account contains invalid characters.
+        resendTravellerCodeEmailInvalidFormat: The provided email is not formatted correctly. Possibly the domain name is omitted/invalid.
+
+        resendTravellerCodeNotFound: The specified traveller could not be found.
+    """    
+
+    traveller_email = traveller_email.strip()
+
+    if not utils.check_length(traveller_email, MIN_EMAIL_LENGTH, MAX_EMAIL_LENGTH):
+        return format_res_err(event, 'EmailExceedsLimit', length_invalid.format('Traveller email', MIN_EMAIL_LENGTH, MAX_EMAIL_LENGTH))
+
+    if not utils.check_chars(traveller_email, EMAIL_CHARACTERS):
+        return format_res_err(event, 'EmailInvalidCharacters', chars_invalid.format('The traveller email'))
+
+    traveller_email_error = utils.check_email(traveller_email)
+
+    if traveller_email_error:
+        return format_res_err(event, 'EmailInvalidFormat', str(traveller_email_error))
+
+    target_acc = get_user_by_email(traveller_email, True)
+
+    if not target_acc or not isinstance(target_acc, TempTraveller):
+        return format_res_err(event, 'NotFound', f'Traveller with email {traveller_email} could not be found.')
+
+    loop.create_task(send_email(traveller_email, email_title.format('email verification code'), [f"{email_content_code.format('email verification')}{target_acc.traveller_code}"]))
+    
+    return format_res(event)
 
 """ Account only """
 
