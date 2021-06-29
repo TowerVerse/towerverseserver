@@ -40,12 +40,11 @@ log = getLogger(LOGGER_NAME)
 
 """ Utilities """
 
-def transform_to_call(target: str, is_argument: bool = False) -> str:
+def transform_to_call(target: str) -> str:
     """Transforms a python string to a function/argument name.
 
     Args:
         target (str): The target string.
-        is_argument (bool): Whether or not it's going to be passed as an argument. Defaults to False.
 
     Returns:
         str: The formatted string.
@@ -57,9 +56,7 @@ def transform_to_call(target: str, is_argument: bool = False) -> str:
             target_list[index] = letter.lower()
             target_list.insert(index, '_')
 
-    result = ''.join([letter for letter in target_list])
-
-    return f"event_{result}" if not is_argument else result
+    return ''.join([letter for letter in target_list])
 
 def transform_to_original(target: str) -> str:
     """Transforms a previously-modified-by-transform_to_call argument to its original state.

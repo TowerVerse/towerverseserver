@@ -175,14 +175,14 @@ def format_res(event_name: str, event_reply: str = 'Reply', **kwargs) -> dict:
     return dumps(result_data)
 
 def format_res_err(event_name: str, event_reply: str, error_message: str, is_no_event_response: bool = False, no_original_event: bool = False, **kwargs) -> dict:
-    """Same as above but for errors.
+    """Same as format_res but for errors.
 
     Args:
-        event_name (str): The name of the event. Set to '' so as not to pass originalEvent to the response.
+        event_name (str): The name of the event. 
         event_reply (str): The string to concatenate to the event_name which will be the reply.
         error_message (str): The message of the error.
         is_no_event_response (bool): If True, event_reply wont be concatenated to event_name. This is helpful for general errors.
-        no_original_event (bool): Whether or not the originalEvent key should be provided. Useful when you can't make it out.
+        no_original_event (bool): Whether or not the originalEvent key should be provided. Useful when you can't make the event out.
 
     Returns:
         dict: The formatted error response.
@@ -231,7 +231,7 @@ def get_users(pure: bool = False) -> Dict[str, Traveller]:
 
         if not pure:
             result_users[user_id] = Traveller(user_id, user_dict['travellerName'], user_dict['travellerEmail'],
-                                                user_dict['travellerPassword'])
+                                            user_dict['travellerPassword'])
         else:
             user_dict.update({'mongoId': mongo_id})
             result_users[user_id] = user_dict
@@ -294,36 +294,8 @@ def get_user_by_email(traveller_email: str, check_in_extra: bool = False) -> Tra
 
     return traveller
 
-async def send_email(to: str, title: str, content: List[str]) -> None:
-    """Sends an email, asynchronously.
-
-    Args:
-        to (str): The recipient of the email.
-        title (str): The title of the email.
-        content (List[str]): The content of the email. 1: Body, 2: Custom html, 3: An image.
-    """    
-    to_error = utils.check_email(to)
-
-    if to_error:
-        utils.log_error('Invalid email provided to send_email, aborting operation.', str(to_error))
-        return
-
-    email_smtp.send(to, title, content)
-
-def is_traveller_logged_in(traveller_id: str):
-    """Checks if someone is currently logged into a traveller account.
-
-    Args:
-        traveller_id (str): The account's id.
-
-    Returns:
-        bool: Whether or not someone is currently linked to the account.
-    """    
-    return traveller_id in wss_accounts.values()
-
 def update_user(user_id: int, **kwargs) -> Traveller:
-    """Updates a user's db keys, according to what is passed. If the key doesn't exist, it is created otherwise it's updated.
-    """
+    """Updates a user's db keys, according to what is passed. If the key doesn't exist, it is created otherwise it's updated. """
     users = get_users(True)
 
     if not user_id in users:
@@ -347,6 +319,33 @@ def update_user(user_id: int, **kwargs) -> Traveller:
         log.error('update_user failed.')
 
     return get_user(user_id)
+
+async def send_email(to: str, title: str, content: List[str]) -> None:
+    """Sends an email, asynchronously.
+
+    Args:
+        to (str): The recipient of the email.
+        title (str): The title of the email.
+        content (List[str]): The content of the email. 1: Body, 2: Custom html, 3: An image.
+    """    
+    to_error = utils.check_email(to)
+
+    if to_error:
+        utils.log_error('Invalid email provided to send_email, aborting operation.', str(to_error))
+        return
+
+    email_smtp.send(to, title, content)
+
+def is_user_logged_in(traveller_id: str):
+    """Checks if someone is currently logged into a traveller account.
+
+    Args:
+        traveller_id (str): The account's id.
+
+    Returns:
+        bool: Whether or not someone is currently linked to the account.
+    """    
+    return traveller_id in wss_accounts.values()
 
 """ Decorators and checks. """
 
@@ -399,8 +398,11 @@ def no_account_check(event: str, wss: WebSocketClientProtocol) -> bool:
 
 """ Events """
 
+
+""" NO ACCOUNT ONLY """
+
 @no_account
-def event_create_traveller(event: str, traveller_name: str, traveller_email: str, traveller_password: str):
+def create_traveller(event: str, traveller_name: str, traveller_email: str, traveller_password: str):
     """Schedules an account for creation, after it's verified with verifyTraveller.
 
     Possible Responses:
@@ -470,7 +472,7 @@ def event_create_traveller(event: str, traveller_name: str, traveller_email: str
     return format_res(event, travellerId=traveller_id)
 
 @no_account
-def event_login_traveller(event: str, traveller_email: str, traveller_password: str, wss: WebSocketServerProtocol):
+def login_traveller(event: str, traveller_email: str, traveller_password: str, wss: WebSocketServerProtocol):
     """Links an IP to a traveller account.
 
     Possible Responses:
@@ -517,7 +519,7 @@ def event_login_traveller(event: str, traveller_email: str, traveller_password: 
     """ Finally, login the IP to the account. """
     if checkpw(bytes(traveller_password, encoding='ascii'), travellers[traveller.traveller_id].traveller_password if IS_LOCAL
                                                             else get_users()[traveller.traveller_id].traveller_password):
-        if is_traveller_logged_in(traveller.traveller_id):
+        if is_user_logged_in(traveller.traveller_id):
             return format_res_err(event, 'AccountTaken', 'Another user has already logged into this account.')
     
         wss_accounts[wss.remote_address[0]] = traveller.traveller_id
@@ -527,7 +529,7 @@ def event_login_traveller(event: str, traveller_email: str, traveller_password: 
     return format_res_err(event, 'InvalidPassword', f'The password is invalid.')
 
 @no_account
-def event_verify_traveller(event: str, traveller_email: str, traveller_code: str, wss: WebSocketServerProtocol):
+def verify_traveller(event: str, traveller_email: str, traveller_code: str, wss: WebSocketServerProtocol):
     """Verifies a traveller account if its present and the code is correct.
 
     Possible Responses:
@@ -562,8 +564,10 @@ def event_verify_traveller(event: str, traveller_email: str, traveller_code: str
     else:
         return format_res_err(event, 'CodeExceedsLimit', f'The verification code must consist of exactly {VERIFICATION_CODE_LENGTH} characters.')
 
+""" ACCOUNT ONLY"""
+
 @account
-def event_logout_traveller(event: str, wss: WebSocketClientProtocol):
+def logout_traveller(event: str, wss: WebSocketClientProtocol):
     """Unlinks an IP from its associated traveller account. 
 
     Possible Responses:
@@ -574,7 +578,7 @@ def event_logout_traveller(event: str, wss: WebSocketClientProtocol):
     return format_res(event)
 
 @account
-def event_fetch_travellers(event: str):
+def fetch_travellers(event: str):
     """Fetches every single traveller's ID.
         
     Possible Responses:
@@ -583,7 +587,7 @@ def event_fetch_travellers(event: str):
     return format_res(event, travellerIds=[id for id in travellers] if IS_LOCAL else [id for id in get_users()])
 
 @account
-def event_fetch_traveller(event: str, traveller_id: str):
+def fetch_traveller(event: str, traveller_id: str):
     """Fetches a traveller's info, if he exists in the database.
 
     Possible Responses:
@@ -599,7 +603,7 @@ def event_fetch_traveller(event: str, traveller_id: str):
     return format_res_err(event, 'NotFound', f'Traveller with id {traveller_id} not found.')
 
 @account
-def event_total_travellers(event: str):
+def total_travellers(event: str):
     """Returns the number of created (only the verified ones) traveller accounts.
         
     Possible Responses:
@@ -608,7 +612,7 @@ def event_total_travellers(event: str):
     return format_res(event, totalTravellers=len(travellers) if IS_LOCAL else len(get_users()))
 
 @account
-def event_online_travellers(event: str):
+def online_travellers(event: str):
     """Returns the number of online (logged in) travellers.
     
     Possible Responses:
@@ -671,8 +675,8 @@ async def request_switcher(wss: WebSocketClientProtocol, data: dict):
     target_args = {}
 
     for arg, value in data.items():
-        if utils.transform_to_call(arg, True) in target_arg_names:
-            arg_to_add = utils.transform_to_call(arg, True)
+        if utils.transform_to_call(arg) in target_arg_names:
+            arg_to_add = utils.transform_to_call(arg)
                 
             if arg == 'event':
                 arg_to_add = arg
@@ -697,7 +701,7 @@ async def request_switcher(wss: WebSocketClientProtocol, data: dict):
         else:
             try:
                 mdb.logs.insert_one({f'bug-{str(uuid4())}': {'error': f'{e.__class__.__name__}: {e}', 'date': strftime(strf_format, gmtime())}})
-                log.info('A bug report has been created, check the database logs collection.')
+                log.info('A bug report has been created, check the database\'s logs collection.')
             except:
                 utils.log_error_and_exit('Fatal database error', e)
 
