@@ -22,7 +22,7 @@ Extra info:
 """
 
 """ Get the time for imports to be loaded. """
-from time import time
+from time import time, gmtime
 
 imports_start_time = time()
 
@@ -56,6 +56,8 @@ from uuid import uuid4
 
 """ Logging levels. """
 from logging import StreamHandler, getLogger
+
+from time import strftime
 
 """ 3RD-PARTY MODULES """
 
@@ -659,7 +661,7 @@ async def request_switcher(wss: WebSocketClientProtocol, data: dict):
             utils.log_error(f'Error occured while calling {event}', e)
         else:
             try:
-                mdb.logs.insert_one({f'bug-{str(uuid4())}': f'{e.__class__.__name__}: {e}'})
+                mdb.logs.insert_one({f'bug-{str(uuid4())}': {'error': f'{e.__class__.__name__}: {e}', 'date': strftime(strf_format, gmtime())}})
             except:
                 utils.log_error_and_exit('Fatal database error', e)
 

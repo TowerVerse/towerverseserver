@@ -56,8 +56,9 @@ mongo_project_name = 'towerverse.kx1he'
 mongo_database_name = 'towerverse-db'
 mongo_client_extra_args = 'retryWrites=true&w=majority'
 
-""" Error templates. """
+""" String templates. """
 length_invalid = '{} should consist of {} to {} characters.'
 chars_invalid = '{} contains invalid characters.'
 email_title = 'TowerVerse {}'
 email_content_code = 'This is your TowerVerse {} code: '
+strf_format = '%d/%m/%Y %H:%M'
