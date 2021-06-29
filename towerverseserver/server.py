@@ -155,6 +155,9 @@ no_account_events: Dict[str, Callable] = {}
 """ List of all decorators, checked by request_switcher. """
 decorators_list: Set[str] = set({'account', 'no_account'})
 
+""" List of all tasks to run. """
+tasks_list: Dict[str, Callable] = {}
+
 """ Utilities which need server variables to work. """
 
 def format_res(event_name: str, event_reply: str = 'Reply', **kwargs) -> dict:
@@ -349,8 +352,26 @@ def is_user_logged_in(traveller_id: str):
 
 """ Decorators and checks. """
 
+def task(task: Callable):
+    """Decorator. Marks a function as a task.
+    
+    Args:
+        task (Callable): The task to mark.
+    """
+    
+    def wrapper(task: Callable):
+
+        name = task.__name__
+
+        if name in tasks_list:
+            log.warn(wrapper_alr_exists.format('task', name))
+
+        tasks_list[name] = task
+
+    return wrapper(task)
+
 def account(event: Callable):
-    """Decorator. Marks an event as only accessible with an account. Overwrites duplicates. Must be passed without transforming the event name first.
+    """Decorator. Marks an event as only accessible with an account. Overwrites duplicates.
 
     Args:
         event (Callable): The event to mark.
@@ -362,19 +383,19 @@ def account(event: Callable):
 
         """ Don't mind if it overwrites another one, just warn. """
         if name in account_events:
-            log.warn(f'The event name {name} is already in account_events. Consider checking for duplicates to prevent possible errors.')
+            log.warn(wrapper_alr_exists.format('account only event', name))
 
         account_events[name] = event
 
     return wrapper(event)
 
 def account_check(event: str, wss: WebSocketClientProtocol) -> bool:
-    """account_only decorator check. """
+    """ account_only decorator check. """
     if not has_account(wss.remote_address[0]):
         return format_res_err(event, 'AccountOnly', 'You must login to an account first before using this event.', True)
 
 def no_account(event: Callable):
-    """Decorator. Marks an event as only accessible without an account. Overwrites duplicates. Must be passed without transforming the event name first.
+    """Decorator. Marks an event as only accessible without an account. Overwrites duplicates.
 
     Args:
         event (Callable): The event to mark.
@@ -385,7 +406,7 @@ def no_account(event: Callable):
         name = event.__name__
 
         if name in no_account_events:
-            log.warn(f'The event name {name} is already in no_account_events. Consider checking for duplicates to prevent possible errors.')
+            log.warn(wrapper_alr_exists.format('no account only event', name))
 
         no_account_events[name] = event
 
@@ -397,7 +418,6 @@ def no_account_check(event: str, wss: WebSocketClientProtocol) -> bool:
         return format_res_err(event, 'NoAccountOnly', 'You must logout of your current account first before using this event.', True)
 
 """ Events """
-
 
 """ NO ACCOUNT ONLY """
 
@@ -842,7 +862,8 @@ def setup_email(email_address: str, email_password: str) -> None:
 
 """ Tasks """
 
-async def task_cleanup_ip_ratelimits() -> None:
+@task
+async def cleanup_ip_ratelimits() -> None:
     """ SETS every key found in the ip_requests dictionary to 0. """
 
     while True:
@@ -851,21 +872,24 @@ async def task_cleanup_ip_ratelimits() -> None:
 
         await asyncio.sleep(IP_RATELIMIT_CLEANUP_INTERVAL)
 
-async def task_cleanup_ip_requests() -> None:
+@task
+async def cleanup_ip_requests() -> None:
     """ CLEARS every key found in the ip_requests dictionary. """
 
     while True:
         ip_requests.clear()
         await asyncio.sleep(IP_REQUESTS_CLEANUP_INTERVAL)
 
-async def task_cleanup_account_links() -> None:
+@task
+async def cleanup_account_links() -> None:
     """ CLEARS the linked IPs and accounts dictionary. """
 
     while True:
         wss_accounts.clear()
         await asyncio.sleep(IP_ACCOUNT_CLEANUP_INTERVAL)
 
-async def task_cleanup_temp_accounts() -> None:
+@task
+async def cleanup_temp_accounts() -> None:
     """ DELETES accounts which have not been verified. """
     
     while True:
@@ -904,12 +928,10 @@ if __name__ == '__main__':
 
     start_server = ws_serve(serve, '0.0.0.0', port)
 
-    registered_tasks = [task for task_name, task in globals().items() if task_name.startswith('task_')]
-
-    for task in registered_tasks:
+    for task in tasks_list.values():
         loop.create_task(task())
 
-    if len(registered_tasks) > 0:
+    if len(tasks_list) > 0:
         log.info('Tasks started.')
 
     try:
