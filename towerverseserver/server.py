@@ -452,7 +452,7 @@ def event_create_traveller(event: str, traveller_name: str, traveller_email: str
         return format_res_err(event, traveller_password_checks[0], traveller_password_checks[1])
 
     """ Finally, create the account. """
-    traveller_id = utils.gen_id() if not IS_TEST else '123'
+    traveller_id = utils.gen_id()
 
     """ rounds=13 so as to exceed the 214ms bare limit according to: https://security.stackexchange.com/questions/3959/recommended-of-iterations-when-using-pkbdf2-sha256. """
     hashed_password = hashpw(bytes(traveller_password, encoding='ascii'), gensalt(rounds=13))
