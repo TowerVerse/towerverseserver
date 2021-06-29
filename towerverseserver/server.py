@@ -350,296 +350,6 @@ def is_user_logged_in(traveller_id: str):
     """    
     return traveller_id in wss_accounts.values()
 
-""" Decorators and checks. """
-
-def task(task: Callable):
-    """Decorator. Marks a function as a task.
-    
-    Args:
-        task (Callable): The task to mark.
-    """
-    
-    def wrapper(task: Callable):
-
-        name = task.__name__
-
-        if name in tasks_list:
-            log.warn(wrapper_alr_exists.format('task', name))
-
-        tasks_list[name] = task
-
-    return wrapper(task)
-
-def account(event: Callable):
-    """Decorator. Marks an event as only accessible with an account. Overwrites duplicates.
-
-    Args:
-        event (Callable): The event to mark.
-    """
-
-    def wrapper(event: Callable):
-
-        name = event.__name__
-
-        """ Don't mind if it overwrites another one, just warn. """
-        if name in account_events:
-            log.warn(wrapper_alr_exists.format('account only event', name))
-
-        account_events[name] = event
-
-    return wrapper(event)
-
-def account_check(event: str, wss: WebSocketClientProtocol) -> bool:
-    """ account_only decorator check. """
-    if not has_account(wss.remote_address[0]):
-        return format_res_err(event, 'AccountOnly', 'You must login to an account first before using this event.', True)
-
-def no_account(event: Callable):
-    """Decorator. Marks an event as only accessible without an account. Overwrites duplicates.
-
-    Args:
-        event (Callable): The event to mark.
-    """
-
-    def wrapper(event: Callable):
-
-        name = event.__name__
-
-        if name in no_account_events:
-            log.warn(wrapper_alr_exists.format('no account only event', name))
-
-        no_account_events[name] = event
-
-    return wrapper(event)
-
-def no_account_check(event: str, wss: WebSocketClientProtocol) -> bool:
-    """ no_account_only decorator check. """
-    if has_account(wss.remote_address[0]):
-        return format_res_err(event, 'NoAccountOnly', 'You must logout of your current account first before using this event.', True)
-
-""" Events """
-
-""" NO ACCOUNT ONLY """
-
-@no_account
-def create_traveller(event: str, traveller_name: str, traveller_email: str, traveller_password: str):
-    """Schedules an account for creation, after it's verified with verifyTraveller.
-
-    Possible Responses:
-        createTravellerReply: The websocket has successfully created a traveller. verifyTraveller must now be called with the sent code.
-
-        createTravellerNameExceedsLimit: The provided name exceeds the current name length limitations.
-        createTravellerNameInvalidCharacters: The name of the account contains invalid characters.
-
-        createTravellerEmailExceedsLimit: The provided name exceeds the current email length limitations.
-        createTravellerEmailInvalidCharacters: The email of the account contains invalid characters.
-        createTravellerEmailInvalidFormat: The provided email is not formatted correctly. Possibly the domain name is omitted/invalid.
-        createTravellerEmailInUse: The provided email is already in use.
-
-        createTravellerPasswordExceedsLimit: The provided password exceeds the current password length limitations.
-    """
-
-    """ Username checks. """
-    traveller_name = traveller_name.strip()
-
-    if not utils.check_length(traveller_name, MIN_USERNAME_LENGTH, MAX_USERNAME_LENGTH):
-        return format_res_err(event, 'NameExceedsLimit', length_invalid.format('Traveller name', MIN_USERNAME_LENGTH, MAX_USERNAME_LENGTH))
-
-    if not utils.check_chars(traveller_name, USERNAME_CHARACTERS):
-        return format_res_err(event, 'NameInvalidCharacters', chars_invalid.format('The traveller name'))
-
-    """ Email checks. """
-    traveller_email = traveller_email.strip()
-
-    if not utils.check_length(traveller_email, MIN_EMAIL_LENGTH, MAX_EMAIL_LENGTH):
-        return format_res_err(event, 'EmailExceedsLimit', length_invalid.format('Traveller email', MIN_EMAIL_LENGTH, MAX_EMAIL_LENGTH))
-    
-    if not utils.check_chars(traveller_email, EMAIL_CHARACTERS):
-        return format_res_err(event, 'EmailInvalidCharacters', chars_invalid.format('The traveller email'))
-
-    traveller_email_error = utils.check_email(traveller_email)
-
-    if traveller_email_error:
-        return format_res_err(event, 'EmailInvalidFormat', str(traveller_email_error))
-
-    if get_user_by_email(traveller_email, True):
-        return format_res_err(event, 'EmailInUse', 'This email is already in use by another account.')
-
-    """ Password checks. """
-    traveller_password = utils.format_password(traveller_password)
-
-    traveller_password_checks = utils.check_password(traveller_password)
-
-    if traveller_password_checks:
-        return format_res_err(event, traveller_password_checks[0], traveller_password_checks[1])
-
-    """ Finally, create the account. """
-    traveller_id = utils.gen_id()
-
-    """ rounds=13 so as to exceed the 214ms bare limit according to: https://security.stackexchange.com/questions/3959/recommended-of-iterations-when-using-pkbdf2-sha256. """
-    hashed_password = hashpw(bytes(traveller_password, encoding='ascii'), gensalt(rounds=13))
-
-    traveller_verification = ''
-
-    if not IS_TEST:
-        traveller_verification = utils.gen_verification_code()
-        loop.create_task(send_email(traveller_email, email_title.format('email verification code'), [f"{email_content_code.format('email verification')}{traveller_verification}"]))
-    else:
-        traveller_verification = '123456'
-
-    accounts_to_create[traveller_email] = TempTraveller(traveller_id, traveller_name, traveller_email, hashed_password, traveller_verification)
-
-    return format_res(event, travellerId=traveller_id)
-
-@no_account
-def login_traveller(event: str, traveller_email: str, traveller_password: str, wss: WebSocketServerProtocol):
-    """Links an IP to a traveller account.
-
-    Possible Responses:
-        loginTravellerReply: The IP has been successfully linked to a traveller account.
-
-        loginTravellerEmailExceedsLimit: The provided email exceeds the current name length limitations.
-        loginTravellerEmailInvalidCharacters: The email of the account contains invalid characters.
-        loginTravellerEmailInvalidFormat: The provided email is not formatted correctly. Possibly the domain name is omitted/invalid.
-
-        loginTravellerPasswordExceedsLimit: The provided password exceeds current password length limitations.
-
-        loginTravellerNotFound: The traveller with the requested ID could not be found.
-        loginTravellerAccountTaken: The target account is already taken by another IP.
-        loginTravellerInvalidPassword: The given password doesn't match the original one.
-    """
-
-    """ Email checks. """
-    traveller_email = traveller_email.strip()
-
-    if not utils.check_length(traveller_email, MIN_EMAIL_LENGTH, MAX_EMAIL_LENGTH):
-        return format_res_err(event, 'EmailExceedsLimit', length_invalid.format('Traveller email', MIN_EMAIL_LENGTH, MAX_EMAIL_LENGTH))
-
-    if not utils.check_chars(traveller_email, EMAIL_CHARACTERS):
-        return format_res_err(event, 'EmailInvalidCharacters', chars_invalid.format('The traveller email'))
-
-    traveller_email_error = utils.check_email(traveller_email)
-
-    if traveller_email_error:
-        return format_res_err(event, 'EmailInvalidFormat', str(traveller_email_error))
-    
-    traveller = get_user_by_email(traveller_email)
-
-    if not traveller:
-        return format_res_err(event, 'NotFound', f'The Traveller with email {traveller_email} could not be found.')
-
-    """ Password checks. """
-    traveller_password = utils.format_password(traveller_password)
-
-    traveller_password_checks = utils.check_password(traveller_password)
-
-    if traveller_password_checks:
-        return format_res_err(event, traveller_password_checks[0], traveller_password_checks[1])
-
-    """ Finally, login the IP to the account. """
-    if checkpw(bytes(traveller_password, encoding='ascii'), travellers[traveller.traveller_id].traveller_password if IS_LOCAL
-                                                            else get_users()[traveller.traveller_id].traveller_password):
-        if is_user_logged_in(traveller.traveller_id):
-            return format_res_err(event, 'AccountTaken', 'Another user has already logged into this account.')
-    
-        wss_accounts[wss.remote_address[0]] = traveller.traveller_id
-
-        return format_res(event, travellerId=traveller.traveller_id)
-
-    return format_res_err(event, 'InvalidPassword', f'The password is invalid.')
-
-@no_account
-def verify_traveller(event: str, traveller_email: str, traveller_code: str, wss: WebSocketServerProtocol):
-    """Verifies a traveller account if its present and the code is correct.
-
-    Possible Responses:
-        verifyTravellerReply: The email of the traveller has been successfully verified.
-        
-        verifyTravellerNotFound: The specified traveller could not be found.
-        verifyTravellerCodeExceedsLimit: The code's length is not VERIFICATION_CODE_LENGTH.
-        verifyTravellerInvalidCode: The verification code is invalid.
-    """
-    
-    if traveller_email not in accounts_to_create:
-        return format_res_err(event, 'NotFound', f'The Traveller with email {traveller_email} could not be found.')
-
-    if len(traveller_code) == VERIFICATION_CODE_LENGTH:
-        if accounts_to_create[traveller_email].traveller_code == traveller_code:
-            
-            target_acc = accounts_to_create[traveller_email]
-            
-            if IS_LOCAL:
-                travellers[target_acc.traveller_id] = Traveller(target_acc.traveller_id, target_acc.traveller_name, target_acc.traveller_email, target_acc.traveller_password)
-            else:
-                mdb.users.insert_one({target_acc.traveller_id: {'travellerName': target_acc.traveller_name, 'travellerEmail': target_acc.traveller_email,
-                                                                'travellerPassword': target_acc.traveller_password}})
-            
-            wss_accounts[wss.remote_address[0]] = target_acc.traveller_id
-            
-            del accounts_to_create[target_acc.traveller_email]
-            
-            return format_res(event, travellerId=target_acc.traveller_id)
-        else:
-            return format_res_err(event, 'InvalidCode', 'The provided code is invalid.')
-    else:
-        return format_res_err(event, 'CodeExceedsLimit', f'The verification code must consist of exactly {VERIFICATION_CODE_LENGTH} characters.')
-
-""" ACCOUNT ONLY"""
-
-@account
-def logout_traveller(event: str, wss: WebSocketClientProtocol):
-    """Unlinks an IP from its associated traveller account. 
-
-    Possible Responses:
-        logoutTravellerReply: The IP has been successfully unliked from its associated account.
-    """
-    del wss_accounts[wss.remote_address[0]]
-
-    return format_res(event)
-
-@account
-def fetch_travellers(event: str):
-    """Fetches every single traveller's ID.
-        
-    Possible Responses:
-        fetchTravellersReply: The existing travellers' IDs have been successfully fetched.
-    """
-    return format_res(event, travellerIds=[id for id in travellers] if IS_LOCAL else [id for id in get_users()])
-
-@account
-def fetch_traveller(event: str, traveller_id: str):
-    """Fetches a traveller's info, if he exists in the database.
-
-    Possible Responses:
-        fetchTravellerReply: Info about a traveller has been successfully fetched.
-
-        fetchTravellerNotFound: The traveller with the requested ID could not be found.
-    """
-    traveller = get_user(traveller_id)
-
-    if traveller:
-        return format_res(event, travellerName=traveller.traveller_name, travellerId=traveller_id)
-
-    return format_res_err(event, 'NotFound', f'Traveller with id {traveller_id} not found.')
-
-@account
-def total_travellers(event: str):
-    """Returns the number of created (only the verified ones) traveller accounts.
-        
-    Possible Responses:
-        totalTravellersReply: The number of existing travellers has been successfully fetched.
-    """
-    return format_res(event, totalTravellers=len(travellers) if IS_LOCAL else len(get_users()))
-
-@account
-def online_travellers(event: str):
-    """Returns the number of online (logged in) travellers.
-    
-    Possible Responses:
-        onlineTravellersReply: The number of online travellers at the moment.
-    """
-    return format_res(event, onlineTravellers=len(wss_accounts))
-
 """ Main """
 
 async def request_switcher(wss: WebSocketClientProtocol, data: dict):
@@ -859,6 +569,296 @@ def setup_email(email_address: str, email_password: str) -> None:
     email_smtp = SMTP(email_address, email_password)
     
     log.info('Successfully setup email account.')
+
+""" Decorators and checks. """
+
+def task(task: Callable):
+    """Decorator. Marks a function as a task.
+    
+    Args:
+        task (Callable): The task to mark.
+    """
+    
+    def wrapper(task: Callable):
+
+        name = task.__name__
+
+        if name in tasks_list:
+            log.warn(wrapper_alr_exists.format('task', name))
+
+        tasks_list[name] = task
+
+    return wrapper(task)
+
+def account(event: Callable):
+    """Decorator. Marks an event as only accessible with an account. Overwrites duplicates.
+
+    Args:
+        event (Callable): The event to mark.
+    """
+
+    def wrapper(event: Callable):
+
+        name = event.__name__
+
+        """ Don't mind if it overwrites another one, just warn. """
+        if name in account_events:
+            log.warn(wrapper_alr_exists.format('account only event', name))
+
+        account_events[name] = event
+
+    return wrapper(event)
+
+def account_check(event: str, wss: WebSocketClientProtocol) -> bool:
+    """ account_only decorator check. """
+    if not has_account(wss.remote_address[0]):
+        return format_res_err(event, 'AccountOnly', 'You must login to an account first before using this event.', True)
+
+def no_account(event: Callable):
+    """Decorator. Marks an event as only accessible without an account. Overwrites duplicates.
+
+    Args:
+        event (Callable): The event to mark.
+    """
+
+    def wrapper(event: Callable):
+
+        name = event.__name__
+
+        if name in no_account_events:
+            log.warn(wrapper_alr_exists.format('no account only event', name))
+
+        no_account_events[name] = event
+
+    return wrapper(event)
+
+def no_account_check(event: str, wss: WebSocketClientProtocol) -> bool:
+    """ no_account_only decorator check. """
+    if has_account(wss.remote_address[0]):
+        return format_res_err(event, 'NoAccountOnly', 'You must logout of your current account first before using this event.', True)
+
+""" Events """
+
+""" No account only """
+
+@no_account
+def create_traveller(event: str, traveller_name: str, traveller_email: str, traveller_password: str):
+    """Schedules an account for creation, after it's verified with verifyTraveller.
+
+    Possible Responses:
+        createTravellerReply: The websocket has successfully created a traveller. verifyTraveller must now be called with the sent code.
+
+        createTravellerNameExceedsLimit: The provided name exceeds the current name length limitations.
+        createTravellerNameInvalidCharacters: The name of the account contains invalid characters.
+
+        createTravellerEmailExceedsLimit: The provided name exceeds the current email length limitations.
+        createTravellerEmailInvalidCharacters: The email of the account contains invalid characters.
+        createTravellerEmailInvalidFormat: The provided email is not formatted correctly. Possibly the domain name is omitted/invalid.
+        createTravellerEmailInUse: The provided email is already in use.
+
+        createTravellerPasswordExceedsLimit: The provided password exceeds the current password length limitations.
+    """
+
+    """ Username checks. """
+    traveller_name = traveller_name.strip()
+
+    if not utils.check_length(traveller_name, MIN_USERNAME_LENGTH, MAX_USERNAME_LENGTH):
+        return format_res_err(event, 'NameExceedsLimit', length_invalid.format('Traveller name', MIN_USERNAME_LENGTH, MAX_USERNAME_LENGTH))
+
+    if not utils.check_chars(traveller_name, USERNAME_CHARACTERS):
+        return format_res_err(event, 'NameInvalidCharacters', chars_invalid.format('The traveller name'))
+
+    """ Email checks. """
+    traveller_email = traveller_email.strip()
+
+    if not utils.check_length(traveller_email, MIN_EMAIL_LENGTH, MAX_EMAIL_LENGTH):
+        return format_res_err(event, 'EmailExceedsLimit', length_invalid.format('Traveller email', MIN_EMAIL_LENGTH, MAX_EMAIL_LENGTH))
+    
+    if not utils.check_chars(traveller_email, EMAIL_CHARACTERS):
+        return format_res_err(event, 'EmailInvalidCharacters', chars_invalid.format('The traveller email'))
+
+    traveller_email_error = utils.check_email(traveller_email)
+
+    if traveller_email_error:
+        return format_res_err(event, 'EmailInvalidFormat', str(traveller_email_error))
+
+    if get_user_by_email(traveller_email, True):
+        return format_res_err(event, 'EmailInUse', 'This email is already in use by another account.')
+
+    """ Password checks. """
+    traveller_password = utils.format_password(traveller_password)
+
+    traveller_password_checks = utils.check_password(traveller_password)
+
+    if traveller_password_checks:
+        return format_res_err(event, traveller_password_checks[0], traveller_password_checks[1])
+
+    """ Finally, create the account. """
+    traveller_id = utils.gen_id()
+
+    """ rounds=13 so as to exceed the 214ms bare limit according to: https://security.stackexchange.com/questions/3959/recommended-of-iterations-when-using-pkbdf2-sha256. """
+    hashed_password = hashpw(bytes(traveller_password, encoding='ascii'), gensalt(rounds=13))
+
+    traveller_verification = ''
+
+    if not IS_TEST:
+        traveller_verification = utils.gen_verification_code()
+        loop.create_task(send_email(traveller_email, email_title.format('email verification code'), [f"{email_content_code.format('email verification')}{traveller_verification}"]))
+    else:
+        traveller_verification = '123456'
+
+    accounts_to_create[traveller_email] = TempTraveller(traveller_id, traveller_name, traveller_email, hashed_password, traveller_verification)
+
+    return format_res(event, travellerId=traveller_id)
+
+@no_account
+def login_traveller(event: str, traveller_email: str, traveller_password: str, wss: WebSocketServerProtocol):
+    """Links an IP to a traveller account.
+
+    Possible Responses:
+        loginTravellerReply: The IP has been successfully linked to a traveller account.
+
+        loginTravellerEmailExceedsLimit: The provided email exceeds the current name length limitations.
+        loginTravellerEmailInvalidCharacters: The email of the account contains invalid characters.
+        loginTravellerEmailInvalidFormat: The provided email is not formatted correctly. Possibly the domain name is omitted/invalid.
+
+        loginTravellerPasswordExceedsLimit: The provided password exceeds current password length limitations.
+
+        loginTravellerNotFound: The traveller with the requested ID could not be found.
+        loginTravellerAccountTaken: The target account is already taken by another IP.
+        loginTravellerInvalidPassword: The given password doesn't match the original one.
+    """
+
+    """ Email checks. """
+    traveller_email = traveller_email.strip()
+
+    if not utils.check_length(traveller_email, MIN_EMAIL_LENGTH, MAX_EMAIL_LENGTH):
+        return format_res_err(event, 'EmailExceedsLimit', length_invalid.format('Traveller email', MIN_EMAIL_LENGTH, MAX_EMAIL_LENGTH))
+
+    if not utils.check_chars(traveller_email, EMAIL_CHARACTERS):
+        return format_res_err(event, 'EmailInvalidCharacters', chars_invalid.format('The traveller email'))
+
+    traveller_email_error = utils.check_email(traveller_email)
+
+    if traveller_email_error:
+        return format_res_err(event, 'EmailInvalidFormat', str(traveller_email_error))
+    
+    traveller = get_user_by_email(traveller_email)
+
+    if not traveller:
+        return format_res_err(event, 'NotFound', f'The Traveller with email {traveller_email} could not be found.')
+
+    """ Password checks. """
+    traveller_password = utils.format_password(traveller_password)
+
+    traveller_password_checks = utils.check_password(traveller_password)
+
+    if traveller_password_checks:
+        return format_res_err(event, traveller_password_checks[0], traveller_password_checks[1])
+
+    """ Finally, login the IP to the account. """
+    if checkpw(bytes(traveller_password, encoding='ascii'), travellers[traveller.traveller_id].traveller_password if IS_LOCAL
+                                                            else get_users()[traveller.traveller_id].traveller_password):
+        if is_user_logged_in(traveller.traveller_id):
+            return format_res_err(event, 'AccountTaken', 'Another user has already logged into this account.')
+    
+        wss_accounts[wss.remote_address[0]] = traveller.traveller_id
+
+        return format_res(event, travellerId=traveller.traveller_id)
+
+    return format_res_err(event, 'InvalidPassword', f'The password is invalid.')
+
+@no_account
+def verify_traveller(event: str, traveller_email: str, traveller_code: str, wss: WebSocketServerProtocol):
+    """Verifies a traveller account if its present and the code is correct.
+
+    Possible Responses:
+        verifyTravellerReply: The email of the traveller has been successfully verified.
+        
+        verifyTravellerNotFound: The specified traveller could not be found.
+        verifyTravellerCodeExceedsLimit: The code's length is not VERIFICATION_CODE_LENGTH.
+        verifyTravellerInvalidCode: The verification code is invalid.
+    """
+    
+    if traveller_email not in accounts_to_create:
+        return format_res_err(event, 'NotFound', f'The Traveller with email {traveller_email} could not be found.')
+
+    if len(traveller_code) == VERIFICATION_CODE_LENGTH:
+        if accounts_to_create[traveller_email].traveller_code == traveller_code:
+            
+            target_acc = accounts_to_create[traveller_email]
+            
+            if IS_LOCAL:
+                travellers[target_acc.traveller_id] = Traveller(target_acc.traveller_id, target_acc.traveller_name, target_acc.traveller_email, target_acc.traveller_password)
+            else:
+                mdb.users.insert_one({target_acc.traveller_id: {'travellerName': target_acc.traveller_name, 'travellerEmail': target_acc.traveller_email,
+                                                                'travellerPassword': target_acc.traveller_password}})
+            
+            wss_accounts[wss.remote_address[0]] = target_acc.traveller_id
+            
+            del accounts_to_create[target_acc.traveller_email]
+            
+            return format_res(event, travellerId=target_acc.traveller_id)
+        else:
+            return format_res_err(event, 'InvalidCode', 'The provided code is invalid.')
+    else:
+        return format_res_err(event, 'CodeExceedsLimit', f'The verification code must consist of exactly {VERIFICATION_CODE_LENGTH} characters.')
+
+""" Account only """
+
+@account
+def logout_traveller(event: str, wss: WebSocketClientProtocol):
+    """Unlinks an IP from its associated traveller account. 
+
+    Possible Responses:
+        logoutTravellerReply: The IP has been successfully unliked from its associated account.
+    """
+    del wss_accounts[wss.remote_address[0]]
+
+    return format_res(event)
+
+@account
+def fetch_travellers(event: str):
+    """Fetches every single traveller's ID.
+        
+    Possible Responses:
+        fetchTravellersReply: The existing travellers' IDs have been successfully fetched.
+    """
+    return format_res(event, travellerIds=[id for id in travellers] if IS_LOCAL else [id for id in get_users()])
+
+@account
+def fetch_traveller(event: str, traveller_id: str):
+    """Fetches a traveller's info, if he exists in the database.
+
+    Possible Responses:
+        fetchTravellerReply: Info about a traveller has been successfully fetched.
+
+        fetchTravellerNotFound: The traveller with the requested ID could not be found.
+    """
+    traveller = get_user(traveller_id)
+
+    if traveller:
+        return format_res(event, travellerName=traveller.traveller_name, travellerId=traveller_id)
+
+    return format_res_err(event, 'NotFound', f'Traveller with id {traveller_id} not found.')
+
+@account
+def total_travellers(event: str):
+    """Returns the number of created (only the verified ones) traveller accounts.
+        
+    Possible Responses:
+        totalTravellersReply: The number of existing travellers has been successfully fetched.
+    """
+    return format_res(event, totalTravellers=len(travellers) if IS_LOCAL else len(get_users()))
+
+@account
+def online_travellers(event: str):
+    """Returns the number of online (logged in) travellers.
+    
+    Possible Responses:
+        onlineTravellersReply: The number of online travellers at the moment.
+    """
+    return format_res(event, onlineTravellers=len(wss_accounts))
 
 """ Tasks """
 
