@@ -904,12 +904,29 @@ def total_travellers(event: str):
 
 @account
 def online_travellers(event: str):
-    """Returns the number of online (logged in) travellers.
+    """Returns the number of online (logged in) travellers and their IDs.
     
     Possible Responses:
-        onlineTravellersReply: The number of online travellers at the moment.
+        onlineTravellersReply: The number of online travellers at the moment, with their IDs.
     """
-    return format_res(event, onlineTravellers=len(wss_accounts))
+
+    result_data = dict(onlineTravellers=len(wss_accounts))
+
+    online_travellers_ids = []
+
+    if IS_LOCAL:
+        for id in travellers:
+            if id in wss_accounts.values():
+                online_travellers_ids.append(id)
+
+    else:
+        for id in get_users():
+            if id in wss_accounts.values():
+                online_travellers_ids.append(id)
+
+    result_data['onlineTravellersIds'] = online_travellers_ids
+
+    return format_res(event, **result_data)
 
 """ Tasks """
 
