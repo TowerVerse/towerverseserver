@@ -22,7 +22,7 @@ Extra info:
 """
 
 """ Get the time for imports to be loaded. """
-from time import time, gmtime
+from time import gmtime, time
 
 imports_start_time = time()
 
@@ -56,7 +56,6 @@ from uuid import uuid4
 
 """ Logging levels. """
 from logging import StreamHandler, getLogger
-
 from time import strftime
 
 """ 3RD-PARTY MODULES """
@@ -70,7 +69,8 @@ from websockets.legacy.server import WebSocketServerProtocol
 """ Password hashing. """
 from bcrypt import checkpw, gensalt, hashpw
 
-""" MongoDB. """
+""" MongoDB-related. """
+from bson.objectid import ObjectId
 from pymongo import MongoClient
 from pymongo.database import Database
 from pymongo.errors import ConfigurationError, OperationFailure
@@ -211,21 +211,88 @@ def has_account(request_ip: str) -> bool:
     """
     return request_ip in wss_accounts
 
-def get_users() -> dict:
-    """Returns the users which are created. Only for the database version.
+def get_users(pure: bool = False) -> Dict[str, Traveller]:
+    """Returns the users which are created. Only for the database version. 
+
+    Args:
+        pure (bool): Whether or not a Traveller should be returned otherwise the raw data will be.
 
     Returns:
-        dict: The users dictionary.
+        Dict[str, Traveller]: The users dictionary.
     """
 
-    result_users = {}
+    result_users: Dict[str, Traveller] = {}
 
-    """ Gets all ids in the users collection. """
     for cursor in mdb.users.find({}):
-        del cursor['_id']
-        result_users[list(cursor.keys())[0]] = list(cursor.values())[0]
+        user_dict = list(cursor.values())[1]
+        user_id = list(cursor.keys())[1]
+
+        mongo_id = str(cursor['_id']).split('\'')[0]
+
+        if not pure:
+            result_users[user_id] = Traveller(user_id, user_dict['travellerName'], user_dict['travellerEmail'],
+                                                user_dict['travellerPassword'])
+        else:
+            user_dict.update({'mongoId': mongo_id})
+            result_users[user_id] = user_dict
 
     return result_users
+
+def get_user(traveller_id: str, check_in_extra: bool = False) -> Traveller:
+    """Finds a user by id.
+
+    Args:
+        traveller_id (str): The traveller id.
+        check_in_extra (bool, optional): Also checks in extra dictionaries. Defaults to False.
+
+    Returns:
+        Traveller: The Traveller object, if the traveller is found.
+    """
+    traveller: Traveller = None
+
+    if IS_LOCAL:
+        if traveller_id in travellers:
+            traveller = travellers[traveller_id]
+
+    else:
+        users = get_users()
+
+        if traveller_id in users:
+            traveller = users[traveller_id]
+
+    if check_in_extra:
+        if traveller_id in accounts_to_create:
+            traveller = accounts_to_create[traveller_id]
+
+    return traveller
+
+def get_user_by_email(traveller_email: str, check_in_extra: bool = False) -> Traveller:
+    """Finds a traveller account by his email.
+
+    Args:
+        traveller_email (str): The traveller email.
+        check_in_extra (bool, optional): Also checks in extra dictionaries. Defaults to False.
+
+    Returns:
+        Traveller: The Traveller object, if the traveller is found.
+    """
+    traveller: Traveller = None
+
+    if IS_LOCAL:
+        for key, item in travellers.items():
+            if item.traveller_email == traveller_email:
+                traveller = get_user(key)
+    else:
+        for key, item in get_users().items():
+            if item.traveller_email == traveller_email:
+                traveller = get_user(key)
+
+    if check_in_extra:
+        for key, item in accounts_to_create.items():
+            if item.traveller_email == traveller_email:
+                traveller = get_user(key, True)
+
+    return traveller
 
 async def send_email(to: str, title: str, content: List[str]) -> None:
     """Sends an email, asynchronously.
@@ -243,65 +310,6 @@ async def send_email(to: str, title: str, content: List[str]) -> None:
 
     email_smtp.send(to, title, content)
 
-def find_user(traveller_id: str, check_in_extra: bool = False) -> Traveller:
-    """Finds a user by id.
-
-    Args:
-        traveller_id (str): The traveller id.
-        check_in_extra (bool, optional): Also checks in extra dictionaries. Defaults to False.
-
-    Returns:
-        Traveller: The Traveller object, if the traveller is found.
-    """
-    traveller: Traveller = None
-
-    if IS_LOCAL:
-        if traveller_id in travellers:
-            target_acc = travellers[traveller_id]
-
-            traveller = Traveller(target_acc.traveller_id, target_acc.traveller_name, target_acc.traveller_email, target_acc.traveller_password)
-    else:
-        if traveller_id in get_users():
-            target_acc = get_users()[traveller_id]
-
-            traveller = Traveller(traveller_id, target_acc['travellerName'], target_acc['travellerEmail'], target_acc['travellerPassword'])
-
-    if check_in_extra:
-        if traveller_id in accounts_to_create:
-            target_acc = accounts_to_create[traveller_id]
-
-            traveller = Traveller(target_acc.traveller_id, target_acc.traveller_name, target_acc.traveller_email, target_acc.traveller_password)
-
-    return traveller if traveller else None
-
-def find_user_id_by_email(traveller_email: str, check_in_extra: bool = False) -> Traveller:
-    """Finds a traveller account by his email.
-
-    Args:
-        traveller_email (str): The traveller email.
-        check_in_extra (bool, optional): Also checks in extra dictionaries. Defaults to False.
-
-    Returns:
-        Traveller: The Traveller object, if he exists.
-    """
-    traveller: Traveller = None
-
-    if IS_LOCAL:
-        for key, item in travellers.items():
-            if item.traveller_email == traveller_email:
-                traveller = find_user(key)
-    else:
-        for key, item in get_users().items():
-            if item['travellerEmail'] == traveller_email:
-                traveller = find_user(key)
-
-    if check_in_extra:
-        for key, item in accounts_to_create.items():
-            if item.traveller_email == traveller_email:
-                traveller = find_user(key, True)
-
-    return traveller if traveller else None
-
 def is_traveller_logged_in(traveller_id: str):
     """Checks if someone is currently logged into a traveller account.
 
@@ -312,6 +320,33 @@ def is_traveller_logged_in(traveller_id: str):
         bool: Whether or not someone is currently linked to the account.
     """    
     return traveller_id in wss_accounts.values()
+
+def update_user(user_id: int, **kwargs) -> Traveller:
+    """Updates a user's db keys, according to what is passed. If the key doesn't exist, it is created otherwise it's updated.
+    """
+    users = get_users(True)
+
+    if not user_id in users:
+        log.error('User id passed to update_user not found, aborting operation')
+        return
+
+    traveller = users[user_id]
+
+    update_dict: Dict[str, str] = {'$set': {user_id: {}}}
+
+    for key, value in kwargs.items():
+        update_dict['$set'][user_id][key] = value
+
+    for key, value in traveller.items():
+        if key not in kwargs.keys() and key != 'mongoId':
+            update_dict['$set'][user_id][key] = value
+
+    result = mdb.users.find_one_and_update({'_id': ObjectId(traveller['mongoId'])}, update_dict)
+
+    if result is None:
+        log.error('update_user failed.')
+
+    return get_user(user_id)
 
 """ Decorators and checks. """
 
@@ -405,7 +440,7 @@ def event_create_traveller(event: str, traveller_name: str, traveller_email: str
     if traveller_email_error:
         return format_res_err(event, 'EmailInvalidFormat', str(traveller_email_error))
 
-    if find_user_id_by_email(traveller_email, True):
+    if get_user_by_email(traveller_email, True):
         return format_res_err(event, 'EmailInUse', 'This email is already in use by another account.')
 
     """ Password checks. """
@@ -426,11 +461,11 @@ def event_create_traveller(event: str, traveller_name: str, traveller_email: str
 
     if not IS_TEST:
         traveller_verification = utils.gen_verification_code()
-        loop.create_task(send_email(traveller_email, email_title.format('email verification code'), [email_content_code.format('email verification')]))
+        loop.create_task(send_email(traveller_email, email_title.format('email verification code'), [f"{email_content_code.format('email verification')}{traveller_verification}"]))
     else:
         traveller_verification = '123456'
 
-    accounts_to_create[traveller_id] = TempTraveller(traveller_id, traveller_name, traveller_email, hashed_password, traveller_verification)
+    accounts_to_create[traveller_email] = TempTraveller(traveller_id, traveller_name, traveller_email, hashed_password, traveller_verification)
 
     return format_res(event, travellerId=traveller_id)
 
@@ -466,7 +501,7 @@ def event_login_traveller(event: str, traveller_email: str, traveller_password: 
     if traveller_email_error:
         return format_res_err(event, 'EmailInvalidFormat', str(traveller_email_error))
     
-    traveller = find_user_id_by_email(traveller_email)
+    traveller = get_user_by_email(traveller_email)
 
     if not traveller:
         return format_res_err(event, 'NotFound', f'The Traveller with email {traveller_email} could not be found.')
@@ -481,7 +516,7 @@ def event_login_traveller(event: str, traveller_email: str, traveller_password: 
 
     """ Finally, login the IP to the account. """
     if checkpw(bytes(traveller_password, encoding='ascii'), travellers[traveller.traveller_id].traveller_password if IS_LOCAL
-                                                            else get_users()[traveller.traveller_id]['travellerPassword']):
+                                                            else get_users()[traveller.traveller_id].traveller_password):
         if is_traveller_logged_in(traveller.traveller_id):
             return format_res_err(event, 'AccountTaken', 'Another user has already logged into this account.')
     
@@ -492,7 +527,7 @@ def event_login_traveller(event: str, traveller_email: str, traveller_password: 
     return format_res_err(event, 'InvalidPassword', f'The password is invalid.')
 
 @no_account
-def event_verify_traveller(event: str, traveller_id: str, traveller_code: str, wss: WebSocketServerProtocol):
+def event_verify_traveller(event: str, traveller_email: str, traveller_code: str, wss: WebSocketServerProtocol):
     """Verifies a traveller account if its present and the code is correct.
 
     Possible Responses:
@@ -503,25 +538,25 @@ def event_verify_traveller(event: str, traveller_id: str, traveller_code: str, w
         verifyTravellerInvalidCode: The verification code is invalid.
     """
     
-    if traveller_id not in accounts_to_create:
-        return format_res_err(event, 'NotFound', f'The Traveller with id {traveller_id} could not be found.')
+    if traveller_email not in accounts_to_create:
+        return format_res_err(event, 'NotFound', f'The Traveller with email {traveller_email} could not be found.')
 
     if len(traveller_code) == VERIFICATION_CODE_LENGTH:
-        if accounts_to_create[traveller_id].traveller_code == traveller_code:
+        if accounts_to_create[traveller_email].traveller_code == traveller_code:
             
-            target_acc = accounts_to_create[traveller_id]
+            target_acc = accounts_to_create[traveller_email]
             
             if IS_LOCAL:
-                travellers[traveller_id] = Traveller(target_acc.traveller_id, target_acc.traveller_name, target_acc.traveller_email, target_acc.traveller_password)
+                travellers[target_acc.traveller_id] = Traveller(target_acc.traveller_id, target_acc.traveller_name, target_acc.traveller_email, target_acc.traveller_password)
             else:
-                mdb.users.insert_one({traveller_id: {'travellerName': target_acc.traveller_name, 'travellerEmail': target_acc.traveller_email,
-                                                'travellerPassword': target_acc.traveller_password}})
+                mdb.users.insert_one({target_acc.traveller_id: {'travellerName': target_acc.traveller_name, 'travellerEmail': target_acc.traveller_email,
+                                                                'travellerPassword': target_acc.traveller_password}})
             
-            wss_accounts[wss.remote_address[0]] = traveller_id    
+            wss_accounts[wss.remote_address[0]] = target_acc.traveller_id
             
-            del accounts_to_create[traveller_id]
+            del accounts_to_create[target_acc.traveller_email]
             
-            return format_res(event, travellerId=traveller_id)
+            return format_res(event, travellerId=target_acc.traveller_id)
         else:
             return format_res_err(event, 'InvalidCode', 'The provided code is invalid.')
     else:
@@ -556,7 +591,7 @@ def event_fetch_traveller(event: str, traveller_id: str):
 
         fetchTravellerNotFound: The traveller with the requested ID could not be found.
     """
-    traveller = find_user(traveller_id)
+    traveller = get_user(traveller_id)
 
     if traveller:
         return format_res(event, travellerName=traveller.traveller_name, travellerId=traveller_id)
@@ -662,6 +697,7 @@ async def request_switcher(wss: WebSocketClientProtocol, data: dict):
         else:
             try:
                 mdb.logs.insert_one({f'bug-{str(uuid4())}': {'error': f'{e.__class__.__name__}: {e}', 'date': strftime(strf_format, gmtime())}})
+                log.info('A bug report has been created, check the database logs collection.')
             except:
                 utils.log_error_and_exit('Fatal database error', e)
 
