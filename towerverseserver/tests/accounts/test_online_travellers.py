@@ -33,4 +33,4 @@ async def test_online_travellers_response():
 
         response = loads(await wss.recv())
 
-        assert isinstance(response, dict) and response['event'] == 'onlineTravellersReply' and response['data']['onlineTravellers'] == 1
+        assert isinstance(response, dict) and response['event'] == 'onlineTravellersReply' and response['data']['onlineTravellers'] == 1 and '123' in response['data']['onlineTravellersIds']
