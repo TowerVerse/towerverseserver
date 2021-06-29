@@ -850,7 +850,8 @@ def resend_traveller_code(event: str, traveller_email: str):
     if not target_acc or not isinstance(target_acc, TempTraveller):
         return format_res_err(event, 'NotFound', f'Traveller with email {traveller_email} could not be found.')
 
-    loop.create_task(send_email(traveller_email, email_title.format('email verification code'), [f"{email_content_code.format('email verification')}{target_acc.traveller_code}"]))
+    if not IS_TEST:
+        loop.create_task(send_email(traveller_email, email_title.format('email verification code'), [f"{email_content_code.format('email verification')}{target_acc.traveller_code}"]))
     
     return format_res(event)
 
