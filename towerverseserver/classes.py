@@ -31,7 +31,7 @@ class Traveller():
     traveller_id: str
     traveller_name: str
     traveller_email: str
-    traveller_password: str
+    traveller_password: bytes
 
 @dataclass(frozen=False)
 class TempTraveller(Traveller):
