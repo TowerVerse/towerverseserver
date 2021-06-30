@@ -130,6 +130,9 @@ wss_accounts: Dict[str, str] = {}
 """ Accounts to create when verified. """
 accounts_to_create: Dict[str, TempTraveller] = {}
 
+""" Email change request codes to verify. """
+email_change_request_codes: Dict[str, str] = {}
+
 """ Whether or not this is a locally-hosted server. """
 IS_LOCAL = parser_args.local
 
@@ -671,16 +674,10 @@ def create_traveller(event: str, traveller_name: str, traveller_email: str, trav
     """ Email checks. """
     traveller_email = traveller_email.strip()
 
-    if not utils.check_length(traveller_email, MIN_EMAIL_LENGTH, MAX_EMAIL_LENGTH):
-        return format_res_err(event, 'EmailExceedsLimit', length_invalid.format('Traveller email', MIN_EMAIL_LENGTH, MAX_EMAIL_LENGTH))
-    
-    if not utils.check_chars(traveller_email, EMAIL_CHARACTERS):
-        return format_res_err(event, 'EmailInvalidCharacters', chars_invalid.format('The traveller email'))
-
     traveller_email_error = utils.check_email(traveller_email)
 
     if traveller_email_error:
-        return format_res_err(event, 'EmailInvalidFormat', str(traveller_email_error))
+        return format_res_err(event, traveller_email_error[0], traveller_email_error[1])
 
     if get_user_by_email(traveller_email, True):
         return format_res_err(event, 'EmailInUse', 'This email is already in use by another account.')
@@ -732,16 +729,10 @@ def login_traveller(event: str, traveller_email: str, traveller_password: str, w
     """ Email checks. """
     traveller_email = traveller_email.strip()
 
-    if not utils.check_length(traveller_email, MIN_EMAIL_LENGTH, MAX_EMAIL_LENGTH):
-        return format_res_err(event, 'EmailExceedsLimit', length_invalid.format('Traveller email', MIN_EMAIL_LENGTH, MAX_EMAIL_LENGTH))
-
-    if not utils.check_chars(traveller_email, EMAIL_CHARACTERS):
-        return format_res_err(event, 'EmailInvalidCharacters', chars_invalid.format('The traveller email'))
-
     traveller_email_error = utils.check_email(traveller_email)
 
     if traveller_email_error:
-        return format_res_err(event, 'EmailInvalidFormat', str(traveller_email_error))
+        return format_res_err(event, traveller_email_error[0], traveller_email_error[1])
     
     traveller = get_user_by_email(traveller_email)
 
@@ -766,7 +757,7 @@ def login_traveller(event: str, traveller_email: str, traveller_password: str, w
 
         return format_res(event, travellerId=traveller.traveller_id)
 
-    return format_res_err(event, 'InvalidPassword', f'The password is invalid.')
+    return format_res_err(event, 'InvalidPassword', 'The password is invalid.')
 
 @no_account
 def verify_traveller(event: str, traveller_email: str, traveller_code: str, wss: WebSocketServerProtocol):
@@ -786,16 +777,10 @@ def verify_traveller(event: str, traveller_email: str, traveller_code: str, wss:
     
     traveller_email = traveller_email.strip()
 
-    if not utils.check_length(traveller_email, MIN_EMAIL_LENGTH, MAX_EMAIL_LENGTH):
-        return format_res_err(event, 'EmailExceedsLimit', length_invalid.format('Traveller email', MIN_EMAIL_LENGTH, MAX_EMAIL_LENGTH))
-
-    if not utils.check_chars(traveller_email, EMAIL_CHARACTERS):
-        return format_res_err(event, 'EmailInvalidCharacters', chars_invalid.format('The traveller email'))
-
     traveller_email_error = utils.check_email(traveller_email)
 
     if traveller_email_error:
-        return format_res_err(event, 'EmailInvalidError', str(traveller_email_error))
+        return format_res_err(event, traveller_email_error[0], traveller_email_error[1])
 
     if traveller_email not in accounts_to_create:
         return format_res_err(event, 'NotFound', f'The Traveller with email {traveller_email} could not be found.')
@@ -837,16 +822,10 @@ def resend_traveller_code(event: str, traveller_email: str):
 
     traveller_email = traveller_email.strip()
 
-    if not utils.check_length(traveller_email, MIN_EMAIL_LENGTH, MAX_EMAIL_LENGTH):
-        return format_res_err(event, 'EmailExceedsLimit', length_invalid.format('Traveller email', MIN_EMAIL_LENGTH, MAX_EMAIL_LENGTH))
-
-    if not utils.check_chars(traveller_email, EMAIL_CHARACTERS):
-        return format_res_err(event, 'EmailInvalidCharacters', chars_invalid.format('The traveller email'))
-
     traveller_email_error = utils.check_email(traveller_email)
 
     if traveller_email_error:
-        return format_res_err(event, 'EmailInvalidFormat', str(traveller_email_error))
+        return format_res_err(event, traveller_email_error[0], traveller_email_error[1])
 
     target_acc = get_user_by_email(traveller_email, True)
 
@@ -933,6 +912,8 @@ def reset_traveller_password(event: str, old_traveller_password: str, new_travel
         resetTravellerPasswordReply: The password has been changed successfully.
 
         resetTravellerPasswordPasswordExceedsLimit: The provided password exceeds current password length limitations.
+
+        resetTravellerPasswordInvalidPassword: The given password doesn't match the original one.
     """
 
     """ Password checks. """
@@ -947,6 +928,7 @@ def reset_traveller_password(event: str, old_traveller_password: str, new_travel
         return format_res_err(event, new_traveller_password_checks[0], new_traveller_password_checks[1])
 
     if checkpw(bytes(old_traveller_password, 'ascii'), account.traveller_password):
+
         new_hashed_password = hashpw(bytes(new_traveller_password, 'ascii'), gensalt(rounds=13))
 
         if IS_LOCAL:
@@ -957,7 +939,87 @@ def reset_traveller_password(event: str, old_traveller_password: str, new_travel
         if not IS_TEST:
             loop.create_task(send_email(account.traveller_email, email_title.format('password changed!'), [email_content_changed.format('password')]))
 
-    return format_res(event)
+        return format_res(event)
+
+    return format_res_err(event, 'InvalidPassword', 'The password is invalid.')
+
+@account
+def reset_traveller_email(event: str, traveller_password: str, new_traveller_email: str, account: Traveller):
+    """Resets a traveller's email.
+
+    Possible Responses:
+        resetTravellerEmailReply: An email change request code has been sent to the new email, call resetTravellerEmailFinal now.
+
+        resetTravellerEmailEmailExceedsLimit: The provided email exceeds the current name length limitations.
+        resetTravellerEmailEmailInvalidCharacters: The email of the account contains invalid characters.
+        resetTravellerEmailEmailInvalidFormat: The provided email is not formatted correctly. Possibly the domain name is omitted/invalid.
+        resetTravellerEmailEmailUnchanged: The original email is the same as the new one.
+        resetTravellerEmailEmailInUse: The new email is already in use.
+
+        resetTravellerEmailInvalidPassword: The given password doesn't match the original one.
+    """    
+
+    """ Email checks. """
+    new_traveller_email_error = utils.check_email(new_traveller_email)
+
+    if new_traveller_email_error:
+        return format_res_err(event, new_traveller_email_error[0], new_traveller_email_error[1])
+
+    if checkpw(bytes(traveller_password, 'ascii'), account.traveller_password):
+
+        if account.traveller_email == new_traveller_email:
+            return format_res_err(event, 'EmailUnchanged', 'The old email is the same as the new one.')
+
+        if get_user_by_email(new_traveller_email, True):
+            return format_res_err(event, 'EmailInUse', 'This email is already in use by another account.')
+
+        traveller_verification = utils.gen_verification_code() if not IS_TEST else '123456'
+
+        if not IS_TEST:
+            traveller_verification = utils.gen_verification_code()
+            loop.create_task(send_email(new_traveller_email, email_title.format('email change request code'), [f"{email_content_code.format('email change request')}{traveller_verification}"]))
+
+        else:
+            traveller_verification = '123456'
+
+        email_change_request_codes[account.traveller_id] = [traveller_verification, new_traveller_email]
+
+        return format_res(event)
+
+    return format_res_err(event, 'InvalidPassword', 'The password is invalid.')
+
+@account
+def reset_traveller_email_final(event: str, traveller_email_code: str, account: Traveller):
+    """Called after resetTravellerEmail to perform the actual operation.
+
+    Possible Responses:
+        resetTravellerEmailFinalReply: The traveller's email has been successfully reset.
+
+        resetTravellerEmailNoCode: You haven't called resetTravellerEmail.
+        resetTravellerEmailFinalCodeExceedsLimit: The code's length is not VERIFICATION_CODE_LENGTH.
+        resetTravellerEmailFinalInvalidCode: The verification code is invalid.
+    """    
+    if account.traveller_id not in email_change_request_codes:
+        return format_res_err(event, 'NoCode', 'No email change code has been requested.')
+
+    if len(traveller_email_code) == VERIFICATION_CODE_LENGTH:
+        if email_change_request_codes[account.traveller_id][0] == traveller_email_code:
+            
+            old_traveller_email = account.traveller_email
+
+            if IS_LOCAL:
+                travellers[account.traveller_id].traveller_email = email_change_request_codes[account.traveller_id][1]
+            else:
+                update_user(account.traveller_id, travellerEmail=email_change_request_codes[account.traveller_id][1])
+
+            if not IS_TEST:
+                loop.create_task(send_email(old_traveller_email, email_title.format('email changed successfully'), [email_content_changed.format('email')]))
+
+            return format_res(event)
+        else:
+            return format_res_err(event, 'InvalidCode', 'The provided code is invalid.')
+    else:
+        return format_res_err(event, 'CodeExceedsLimit', f'The verification code must consist of exactly {VERIFICATION_CODE_LENGTH} characters.')
 
 """ Tasks """
 
