@@ -6,7 +6,7 @@ Maintainer: Shadofer#0001
 Contributors: 
 
 File description:
-    The test regarding the resendTravellerCode response.
+    The test regarding the resetTravellerPassword response.
 
 Extra info:
     None
@@ -25,12 +25,13 @@ import pytest
 
 
 @pytest.mark.asyncio
-@pytest.mark.run(order=2)
-async def test_resend_traveller_code_response():
+@pytest.mark.run(order=10)
+async def test_reset_traveller_password_response():
     async with connect('ws://localhost:5000') as wss:
 
-        await wss.send(dumps({'event': 'resendTravellerCode', 'travellerEmail': 'someemailwhichdoesntexist@gmail.com'}))
+        await wss.send(dumps({'event': 'resetTravellerPassword', 'oldTravellerPassword': 'testpassword123',
+                            'newTravellerPassword': 'testpassword123'}))
 
         response = loads(await wss.recv())
 
-        assert isinstance(response, dict) and response['event'] == 'resendTravellerCodeReply'
+        assert isinstance(response, dict) and response['event'] == 'resetTravellerPasswordReply'

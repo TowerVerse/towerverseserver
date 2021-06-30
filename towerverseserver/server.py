@@ -954,7 +954,8 @@ def reset_traveller_password(event: str, old_traveller_password: str, new_travel
         else:
             update_user(account.traveller_id, travellerPassword=new_hashed_password)
 
-        loop.create_task(send_email(account.traveller_email, email_title.format('password changed!'), [email_content_changed.format('password')]))
+        if not IS_TEST:
+            loop.create_task(send_email(account.traveller_email, email_title.format('password changed!'), [email_content_changed.format('password')]))
 
     return format_res(event)
 
