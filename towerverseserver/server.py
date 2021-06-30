@@ -470,7 +470,8 @@ async def serve(wss: WebSocketClientProtocol, path: str) -> None:
             except KeyError:
                 ip_requests[wss.remote_address[0]] = 0
 
-            ip_requests[wss.remote_address[0]] += 1
+            if not IS_TEST:
+                ip_requests[wss.remote_address[0]] += 1
 
             if len(response.strip()) == 0:
                 continue
