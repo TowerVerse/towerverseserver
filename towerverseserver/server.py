@@ -912,17 +912,11 @@ def online_travellers(event: str):
 
     result_data = dict(onlineTravellers=len(wss_accounts))
 
-    online_travellers_ids = []
-
     if IS_LOCAL:
-        for id in travellers:
-            if id in wss_accounts.values():
-                online_travellers_ids.append(id)
+        online_travellers_ids = [id for id in travellers if id in wss_accounts.values()]
 
     else:
-        for id in get_users():
-            if id in wss_accounts.values():
-                online_travellers_ids.append(id)
+        online_travellers_ids = [id for id in get_users() if id in wss_accounts.values()]
 
     result_data['onlineTravellersIds'] = online_travellers_ids
 
