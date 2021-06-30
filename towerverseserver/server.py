@@ -413,6 +413,9 @@ async def request_switcher(wss: WebSocketClientProtocol, data: dict):
     if 'wss' in target_arg_names:
         target_args['wss'] = wss
 
+    if 'account' in target_arg_names:
+        target_args['account'] = get_user(wss_accounts[wss.remote_address[0]])
+
     args_errored = utils.check_loop_data(target_args, target_arg_names)
 
     if args_errored:
@@ -921,6 +924,39 @@ def online_travellers(event: str):
     result_data['onlineTravellersIds'] = online_travellers_ids
 
     return format_res(event, **result_data)
+
+@account
+def reset_traveller_password(event: str, old_traveller_password: str, new_traveller_password: str, account: Traveller):
+    """Resets a traveller's password.
+
+    Possible Responses:
+        resetTravellerPasswordReply: The password has been changed successfully.
+
+        resetTravellerPasswordPasswordExceedsLimit: The provided password exceeds current password length limitations.
+    """
+
+    """ Password checks. """
+    old_traveller_password, new_traveller_password = utils.format_password(old_traveller_password), utils.format_password(new_traveller_password)
+
+    old_traveller_password_checks, new_traveller_password_checks = utils.check_password(old_traveller_password), utils.check_password(new_traveller_password)
+
+    if old_traveller_password_checks:
+        return format_res_err(event, old_traveller_password_checks[0], old_traveller_password_checks[1])
+        
+    if new_traveller_password_checks:
+        return format_res_err(event, new_traveller_password_checks[0], new_traveller_password_checks[1])
+
+    if checkpw(bytes(old_traveller_password, 'ascii'), account.traveller_password):
+        new_hashed_password = hashpw(bytes(new_traveller_password, 'ascii'), gensalt(rounds=13))
+
+        if IS_LOCAL:
+            travellers[account.traveller_id].traveller_password = new_hashed_password
+        else:
+            update_user(account.traveller_id, travellerPassword=new_hashed_password)
+
+        loop.create_task(send_email(account.traveller_email, email_title.format('password changed!'), [email_content_changed.format('password')]))
+
+    return format_res(event)
 
 """ Tasks """
 
