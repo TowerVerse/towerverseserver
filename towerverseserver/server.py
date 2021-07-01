@@ -133,6 +133,9 @@ accounts_to_create: Dict[str, TempTraveller] = {}
 """ Email change request codes to verify. """
 email_change_request_codes: Dict[str, str] = {}
 
+""" Password change request codes to verify. """
+password_change_request_codes: Dict[str, str] = {}
+
 """ Whether or not this is a locally-hosted server. """
 IS_LOCAL = parser_args.local
 
@@ -876,6 +879,102 @@ def resend_traveller_code(event: str, traveller_email: str):
     
     return format_res(event)
 
+@no_account
+def reset_traveller_password(event: str, traveller_email: str, old_traveller_password: str, new_traveller_password: str):
+    """Resets a not-connected traveller's password.
+
+    Possible Responses:
+        resetTravellerPasswordReply: The password has been changed successfully.
+
+        resetTravellerPasswordEmailExceedsLimit: The provided email exceeds the current name length limitations.
+        resetTravellerPasswordInvalidCharacters: The email of the account contains invalid characters.
+        resetTravellerPasswordEmailInvalidFormat: The provided email is not formatted correctly. Possibly the domain name is omitted/invalid.
+
+        resetTravellerPasswordPasswordExceedsLimit: The provided password exceeds current password length limitations.
+
+        resetTravellerPasswordInvalidPassword: The given password doesn't match the original one.
+    """
+
+    """ Email checks. """
+    traveller_email = traveller_email.strip()
+
+    traveller_email_error = utils.check_email(traveller_email)
+
+    if traveller_email_error:
+        return format_res_err(event, traveller_email_error[0], traveller_email_error[1])
+
+    """ Password checks. """
+    old_traveller_password, new_traveller_password = utils.remove_whitespace(old_traveller_password), utils.remove_whitespace(new_traveller_password)
+
+    old_traveller_password_checks, new_traveller_password_checks = utils.check_password(old_traveller_password), utils.check_password(new_traveller_password)
+
+    if old_traveller_password_checks:
+        return format_res_err(event, old_traveller_password_checks[0], old_traveller_password_checks[1])
+        
+    if new_traveller_password_checks:
+        return format_res_err(event, new_traveller_password_checks[0], new_traveller_password_checks[1])
+
+    target_acc = get_user_by_email(traveller_email)
+
+    if not target_acc:
+        return format_res_err(event, 'NotFound', f'The Traveller with email {traveller_email} could not be found.')
+
+    if not checkpw(bytes(old_traveller_password, 'ascii'), target_acc.traveller_password):
+        return format_res_err(event, 'InvalidPassword', 'The password is invalid.')
+
+    """ Reset password and send email. """
+
+    traveller_verification = utils.gen_verification_code() if not IS_TEST else '123456'
+
+    if not IS_TEST:
+        traveller_verification = utils.gen_verification_code()
+        loop.create_task(send_email(traveller_email, email_title.format('password change request code'),
+                                    [f"{email_content_code.format('password change request')}{traveller_verification}"]))
+
+    else:
+        traveller_verification = '123456'
+
+    password_change_request_codes[target_acc.traveller_id] = [traveller_verification, new_traveller_password]
+
+    return format_res(event)
+
+@no_account
+def reset_traveller_password_final(event: str, traveller_email: str, traveller_password_code: str):
+    """ Email checks. """
+    traveller_email_error = utils.check_email(traveller_email)
+
+    if traveller_email_error:
+        return format_res_err(event, traveller_email_error[0], traveller_email_error[1])
+
+    """ Reset password and send email. """
+    if not len(traveller_password_code) == VERIFICATION_CODE_LENGTH:
+        return format_res_err(event, 'CodeExceedsLimit', f'The verification code must consist of exactly {VERIFICATION_CODE_LENGTH} characters.')
+
+    target_acc = get_user_by_email(traveller_email)
+
+    if not target_acc:
+        return format_res_err(event, 'NotFound', f'The Traveller with email {traveller_email} could not be found.')
+
+    if not target_acc.traveller_id in password_change_request_codes:
+        return format_res_err(event, 'NoCode', 'No password change code has been requested.')
+
+    if not password_change_request_codes[target_acc.traveller_id][0] == traveller_password_code:
+        return format_res_err(event, 'InvalidCode', 'The provided code is invalid.')
+
+    new_hashed_password = hashpw(bytes(password_change_request_codes[target_acc.traveller_id][1], 'ascii'), gensalt(rounds=13))
+
+    if IS_LOCAL:
+        travellers[target_acc.traveller_id].traveller_password = new_hashed_password
+    else:
+        update_user(target_acc.traveller_id, travellerPassword=new_hashed_password)
+
+    if not IS_TEST:
+        loop.create_task(send_email(target_acc.traveller_email, email_title.format('password changed'), [email_content_changed.format('password')]))
+
+    del password_change_request_codes[target_acc.traveller_id]
+
+    return format_res(event)
+
 """ Account only """
 
 @account
@@ -969,7 +1068,7 @@ def reset_traveller_password_account(event: str, old_traveller_password: str, ne
     if not checkpw(bytes(old_traveller_password, 'ascii'), account.traveller_password):
         return format_res_err(event, 'InvalidPassword', 'The password is invalid.')
 
-    """ Send reset traveller password request code. """
+    """ Reset password and send email. """
     new_hashed_password = hashpw(bytes(new_traveller_password, 'ascii'), gensalt(rounds=13))
 
     if IS_LOCAL:
@@ -1026,7 +1125,8 @@ def reset_traveller_email(event: str, traveller_password: str, new_traveller_ema
 
     if not IS_TEST:
         traveller_verification = utils.gen_verification_code()
-        loop.create_task(send_email(new_traveller_email, email_title.format('email change request code'), [f"{email_content_code.format('email change request')}{traveller_verification}"]))
+        loop.create_task(send_email(new_traveller_email, email_title.format('email change request code'),
+                                    [f"{email_content_code.format('email change request')}{traveller_verification}"]))
 
     else:
         traveller_verification = '123456'
@@ -1047,7 +1147,7 @@ def reset_traveller_email_final(event: str, traveller_email_code: str, account: 
         resetTravellerEmailFinalInvalidCode: The verification code is invalid.
     """
 
-    """ Reset traveller email. """
+    """ Reset and send email. """
     if account.traveller_id not in email_change_request_codes:
         return format_res_err(event, 'NoCode', 'No email change code has been requested.')
 
@@ -1066,6 +1166,8 @@ def reset_traveller_email_final(event: str, traveller_email_code: str, account: 
 
     if not IS_TEST:
         loop.create_task(send_email(old_traveller_email, email_title.format('email changed'), [email_content_changed.format('email')]))
+
+    del email_change_request_codes[account.traveller_id]
 
     return format_res(event)
 
@@ -1106,7 +1208,7 @@ def reset_traveller_name(event: str, traveller_password: str, new_traveller_name
     if not checkpw(bytes(traveller_password, 'ascii'), account.traveller_password):
         return format_res_err(event, 'InvalidPassword', 'The password is invalid.')
 
-    """ Reset the traveller name. """
+    """ Reset name and send email. """
     if is_username_taken(new_traveller_name):
         return format_res_err(event, 'NameTaken', 'Another traveller is already using this username.')
 

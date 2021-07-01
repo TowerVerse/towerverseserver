@@ -25,7 +25,7 @@ import pytest
 
 
 @pytest.mark.asyncio
-@pytest.mark.run(order=11)
+@pytest.mark.run(order=12)
 async def test_reset_traveller_email_response():
     async with connect('ws://localhost:5000') as wss:
 
