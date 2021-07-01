@@ -945,14 +945,14 @@ def online_travellers(event: str):
 
 @account
 def reset_traveller_password_account(event: str, old_traveller_password: str, new_traveller_password: str, account: Traveller):
-    """Resets a traveller's password.
+    """Resets a connected traveller's password.
 
     Possible Responses:
-        resetTravellerPasswordReply: The password has been changed successfully.
+        resetTravellerPasswordAccountReply: The password has been changed successfully.
 
-        resetTravellerPasswordPasswordExceedsLimit: The provided password exceeds current password length limitations.
+        resetTravellerPasswordAccountPasswordExceedsLimit: The provided password exceeds current password length limitations.
 
-        resetTravellerPasswordInvalidPassword: The given password doesn't match the original one.
+        resetTravellerPasswordAccountInvalidPassword: The given password doesn't match the original one.
     """
 
     """ Password checks. """
