@@ -944,7 +944,7 @@ def online_travellers(event: str):
     return format_res(event, **result_data)
 
 @account
-def reset_traveller_password(event: str, old_traveller_password: str, new_traveller_password: str, account: Traveller):
+def reset_traveller_password_account(event: str, old_traveller_password: str, new_traveller_password: str, account: Traveller):
     """Resets a traveller's password.
 
     Possible Responses:

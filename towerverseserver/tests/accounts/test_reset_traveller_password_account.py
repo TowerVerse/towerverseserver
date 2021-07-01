@@ -6,7 +6,7 @@ Maintainer: Shadofer#0001
 Contributors: 
 
 File description:
-    The test regarding the resetTravellerPassword response.
+    The test regarding the resetTravellerPasswordAccount response.
 
 Extra info:
     None
@@ -29,9 +29,9 @@ import pytest
 async def test_reset_traveller_password_response():
     async with connect('ws://localhost:5000') as wss:
 
-        await wss.send(dumps({'event': 'resetTravellerPassword', 'oldTravellerPassword': 'testpassword123',
+        await wss.send(dumps({'event': 'resetTravellerPasswordAccount', 'oldTravellerPassword': 'testpassword123',
                             'newTravellerPassword': 'testpassword123'}))
 
         response = loads(await wss.recv())
 
-        assert isinstance(response, dict) and response['event'] == 'resetTravellerPasswordReply'
+        assert isinstance(response, dict) and response['event'] == 'resetTravellerPasswordAccountReply'
