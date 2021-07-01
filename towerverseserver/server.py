@@ -237,7 +237,7 @@ def get_users(pure: bool = False) -> Dict[str, Traveller]:
 
         if not pure:
             result_users[user_id] = Traveller(user_id, user_dict['travellerName'], user_dict['travellerEmail'],
-                                            user_dict['travellerPassword'])
+                                            user_dict['travellerPassword'], user_dict['hasChangedName'])
         else:
             user_dict.update({'mongoId': mongo_id})
             result_users[user_id] = user_dict
@@ -266,7 +266,7 @@ def get_user(traveller_id: str, check_in_extra: bool = False) -> Traveller:
         if traveller_id in users:
             traveller = users[traveller_id]
 
-    if check_in_extra:
+    if check_in_extra and not traveller:
         if traveller_id in accounts_to_create:
             traveller = accounts_to_create[traveller_id]
 
@@ -301,7 +301,14 @@ def get_user_by_email(traveller_email: str, check_in_extra: bool = False) -> Tra
     return traveller
 
 def update_user(user_id: int, **kwargs) -> Traveller:
-    """Updates a user's db keys, according to what is passed. If the key doesn't exist, it is created otherwise it's updated. """
+    """Updates a user's db keys, according to what is passed. If the key doesn't exist, it is created otherwise it's updated. 
+    
+    Args:
+        user_id (int): The traveller's id.
+    
+    Returns:
+        Traveller: The updated Traveller instance.
+    """
     users = get_users(True)
 
     if not user_id in users:
@@ -349,6 +356,29 @@ def is_user_logged_in(traveller_id: str):
         bool: Whether or not someone is currently linked to the account.
     """    
     return traveller_id in wss_accounts.values()
+
+def is_username_taken(traveller_name: str) -> bool:
+    """Checks if a username is taken by another account.
+
+    Args:
+        traveller_name (str): The target traveller name.
+
+    Returns:
+        bool: Whether or not it is taken.
+    """
+
+    is_name_taken = False
+
+    if IS_LOCAL:
+        is_name_taken = len([traveller for traveller in travellers.values() if traveller.traveller_name == traveller_name]) > 0
+
+    else:
+        is_name_taken = len([traveller for traveller in get_users().values() if traveller.traveller_name == traveller_name]) > 0
+
+    if not is_name_taken:
+        is_name_taken = len([traveller for traveller in accounts_to_create.values() if traveller.traveller_name == traveller_name]) > 0
+
+    return is_name_taken
 
 """ Main """
 
@@ -684,14 +714,14 @@ def create_traveller(event: str, traveller_name: str, traveller_email: str, trav
         return format_res_err(event, 'EmailInUse', 'This email is already in use by another account.')
 
     """ Password checks. """
-    traveller_password = utils.format_password(traveller_password)
+    traveller_password = utils.remove_whitespace(traveller_password)
 
     traveller_password_checks = utils.check_password(traveller_password)
 
     if traveller_password_checks:
         return format_res_err(event, traveller_password_checks[0], traveller_password_checks[1])
 
-    """ Finally, create the account. """
+    """ Create the account. """
     traveller_id = utils.gen_id() if not IS_TEST else '123'
 
     """ rounds=13 so as to exceed the 214ms bare limit according to: https://security.stackexchange.com/questions/3959/recommended-of-iterations-when-using-pkbdf2-sha256. """
@@ -705,7 +735,7 @@ def create_traveller(event: str, traveller_name: str, traveller_email: str, trav
     else:
         traveller_verification = '123456'
 
-    accounts_to_create[traveller_email] = TempTraveller(traveller_id, traveller_name, traveller_email, hashed_password, traveller_verification)
+    accounts_to_create[traveller_email] = TempTraveller(traveller_id, traveller_name, traveller_email, hashed_password, False, traveller_verification)
 
     return format_res(event, travellerId=traveller_id)
 
@@ -741,24 +771,24 @@ def login_traveller(event: str, traveller_email: str, traveller_password: str, w
         return format_res_err(event, 'NotFound', f'The Traveller with email {traveller_email} could not be found.')
 
     """ Password checks. """
-    traveller_password = utils.format_password(traveller_password)
+    traveller_password = utils.remove_whitespace(traveller_password)
 
     traveller_password_checks = utils.check_password(traveller_password)
 
     if traveller_password_checks:
         return format_res_err(event, traveller_password_checks[0], traveller_password_checks[1])
 
-    """ Finally, login the IP to the account. """
-    if checkpw(bytes(traveller_password, encoding='ascii'), travellers[traveller.traveller_id].traveller_password if IS_LOCAL
+    if not checkpw(bytes(traveller_password, encoding='ascii'), travellers[traveller.traveller_id].traveller_password if IS_LOCAL
                                                             else get_users()[traveller.traveller_id].traveller_password):
-        if is_user_logged_in(traveller.traveller_id):
-            return format_res_err(event, 'AccountTaken', 'Another user has already logged into this account.')
-    
-        wss_accounts[wss.remote_address[0]] = traveller.traveller_id
+        return format_res_err(event, 'InvalidPassword', 'The password is invalid.')
 
-        return format_res(event, travellerId=traveller.traveller_id)
+    """ Login to the account. """
+    if is_user_logged_in(traveller.traveller_id):
+        return format_res_err(event, 'AccountTaken', 'Another user has already logged into this account.')
 
-    return format_res_err(event, 'InvalidPassword', 'The password is invalid.')
+    wss_accounts[wss.remote_address[0]] = traveller.traveller_id
+
+    return format_res(event, travellerId=traveller.traveller_id)
 
 @no_account
 def verify_traveller(event: str, traveller_email: str, traveller_code: str, wss: WebSocketServerProtocol):
@@ -776,6 +806,7 @@ def verify_traveller(event: str, traveller_email: str, traveller_code: str, wss:
         verifyTravellerInvalidCode: The verification code is invalid.
     """
     
+    """ Email checks. """
     traveller_email = traveller_email.strip()
 
     traveller_email_error = utils.check_email(traveller_email)
@@ -786,26 +817,31 @@ def verify_traveller(event: str, traveller_email: str, traveller_code: str, wss:
     if traveller_email not in accounts_to_create:
         return format_res_err(event, 'NotFound', f'The Traveller with email {traveller_email} could not be found.')
 
-    if len(traveller_code) == VERIFICATION_CODE_LENGTH:
-        if accounts_to_create[traveller_email].traveller_code == traveller_code:
-            
-            target_acc = accounts_to_create[traveller_email]
-            
-            if IS_LOCAL:
-                travellers[target_acc.traveller_id] = Traveller(target_acc.traveller_id, target_acc.traveller_name, target_acc.traveller_email, target_acc.traveller_password)
-            else:
-                mdb.users.insert_one({target_acc.traveller_id: {'travellerName': target_acc.traveller_name, 'travellerEmail': target_acc.traveller_email,
-                                                                'travellerPassword': target_acc.traveller_password}})
-            
-            wss_accounts[wss.remote_address[0]] = target_acc.traveller_id
-            
-            del accounts_to_create[target_acc.traveller_email]
-            
-            return format_res(event, travellerId=target_acc.traveller_id)
-        else:
-            return format_res_err(event, 'InvalidCode', 'The provided code is invalid.')
-    else:
+    """ Verify the account. """
+    if not len(traveller_code) == VERIFICATION_CODE_LENGTH:
         return format_res_err(event, 'CodeExceedsLimit', f'The verification code must consist of exactly {VERIFICATION_CODE_LENGTH} characters.')
+
+    if not accounts_to_create[traveller_email].traveller_code == traveller_code:
+        return format_res_err(event, 'InvalidCode', 'The provided code is invalid.')
+        
+    target_acc = accounts_to_create[traveller_email]
+    
+    if IS_LOCAL:
+        travellers[target_acc.traveller_id] = Traveller(target_acc.traveller_id, target_acc.traveller_name, target_acc.traveller_email,
+                                                        target_acc.traveller_password, target_acc.has_changed_name)
+    else:
+        mdb.users.insert_one({target_acc.traveller_id: {'travellerName': target_acc.traveller_name, 'travellerEmail': target_acc.traveller_email,
+                                                        'travellerPassword': target_acc.traveller_password, 'hasChangedName': False}})
+    
+    wss_accounts[wss.remote_address[0]] = target_acc.traveller_id
+    
+    del accounts_to_create[target_acc.traveller_email]
+    
+    if not IS_TEST:
+        loop.create_task(send_email(target_acc.traveller_email, email_title.format('account created successfully'),
+                                    [f'Your TowerVerse account has been successfully created with the following credentials:\n\nUsername: {target_acc.traveller_name}\n\nWe hope that you have a great time gaming!']))
+
+    return format_res(event, travellerId=target_acc.traveller_id)
 
 @no_account
 def resend_traveller_code(event: str, traveller_email: str):
@@ -821,6 +857,7 @@ def resend_traveller_code(event: str, traveller_email: str):
         resendTravellerCodeNotFound: The specified traveller could not be found.
     """    
 
+    """ Email checks. """
     traveller_email = traveller_email.strip()
 
     traveller_email_error = utils.check_email(traveller_email)
@@ -828,6 +865,7 @@ def resend_traveller_code(event: str, traveller_email: str):
     if traveller_email_error:
         return format_res_err(event, traveller_email_error[0], traveller_email_error[1])
 
+    """ Send traveller verification code. """
     target_acc = get_user_by_email(traveller_email, True)
 
     if not target_acc or not isinstance(target_acc, TempTraveller):
@@ -918,7 +956,7 @@ def reset_traveller_password(event: str, old_traveller_password: str, new_travel
     """
 
     """ Password checks. """
-    old_traveller_password, new_traveller_password = utils.format_password(old_traveller_password), utils.format_password(new_traveller_password)
+    old_traveller_password, new_traveller_password = utils.remove_whitespace(old_traveller_password), utils.remove_whitespace(new_traveller_password)
 
     old_traveller_password_checks, new_traveller_password_checks = utils.check_password(old_traveller_password), utils.check_password(new_traveller_password)
 
@@ -928,25 +966,25 @@ def reset_traveller_password(event: str, old_traveller_password: str, new_travel
     if new_traveller_password_checks:
         return format_res_err(event, new_traveller_password_checks[0], new_traveller_password_checks[1])
 
-    if checkpw(bytes(old_traveller_password, 'ascii'), account.traveller_password):
+    if not checkpw(bytes(old_traveller_password, 'ascii'), account.traveller_password):
+        return format_res_err(event, 'InvalidPassword', 'The password is invalid.')
 
-        new_hashed_password = hashpw(bytes(new_traveller_password, 'ascii'), gensalt(rounds=13))
+    """ Send reset traveller password request code. """
+    new_hashed_password = hashpw(bytes(new_traveller_password, 'ascii'), gensalt(rounds=13))
 
-        if IS_LOCAL:
-            travellers[account.traveller_id].traveller_password = new_hashed_password
-        else:
-            update_user(account.traveller_id, travellerPassword=new_hashed_password)
+    if IS_LOCAL:
+        travellers[account.traveller_id].traveller_password = new_hashed_password
+    else:
+        update_user(account.traveller_id, travellerPassword=new_hashed_password)
 
-        if not IS_TEST:
-            loop.create_task(send_email(account.traveller_email, email_title.format('password changed!'), [email_content_changed.format('password')]))
+    if not IS_TEST:
+        loop.create_task(send_email(account.traveller_email, email_title.format('password changed'), [email_content_changed.format('password')]))
 
-        return format_res(event)
-
-    return format_res_err(event, 'InvalidPassword', 'The password is invalid.')
+    return format_res(event)
 
 @account
 def reset_traveller_email(event: str, traveller_password: str, new_traveller_email: str, account: Traveller):
-    """Resets a traveller's email.
+    """Sends an email change request code to be used by resetTravellerEmailFinal.
 
     Possible Responses:
         resetTravellerEmailReply: An email change request code has been sent to the new email, call resetTravellerEmailFinal now.
@@ -966,32 +1004,40 @@ def reset_traveller_email(event: str, traveller_password: str, new_traveller_ema
     if new_traveller_email_error:
         return format_res_err(event, new_traveller_email_error[0], new_traveller_email_error[1])
 
-    if checkpw(bytes(traveller_password, 'ascii'), account.traveller_password):
+    if account.traveller_email == new_traveller_email:
+        return format_res_err(event, 'EmailUnchanged', 'The old email is the same as the new one.')
 
-        if account.traveller_email == new_traveller_email:
-            return format_res_err(event, 'EmailUnchanged', 'The old email is the same as the new one.')
+    if get_user_by_email(new_traveller_email, True):
+        return format_res_err(event, 'EmailInUse', 'This email is already in use by another account.')
 
-        if get_user_by_email(new_traveller_email, True):
-            return format_res_err(event, 'EmailInUse', 'This email is already in use by another account.')
+    """ Password checks. """
+    traveller_password = utils.remove_whitespace(traveller_password)
 
-        traveller_verification = utils.gen_verification_code() if not IS_TEST else '123456'
+    traveller_password_checks = utils.check_password(traveller_password)
 
-        if not IS_TEST:
-            traveller_verification = utils.gen_verification_code()
-            loop.create_task(send_email(new_traveller_email, email_title.format('email change request code'), [f"{email_content_code.format('email change request')}{traveller_verification}"]))
+    if traveller_password_checks:
+        return format_res_err(event, traveller_password_checks[0], traveller_password_checks[1])
 
-        else:
-            traveller_verification = '123456'
+    if not checkpw(bytes(traveller_password, 'ascii'), account.traveller_password):
+        return format_res_err(event, 'InvalidPassword', 'The password is invalid.')
 
-        email_change_request_codes[account.traveller_id] = [traveller_verification, new_traveller_email]
+    """ Send the email change request code. """
+    traveller_verification = utils.gen_verification_code() if not IS_TEST else '123456'
 
-        return format_res(event)
+    if not IS_TEST:
+        traveller_verification = utils.gen_verification_code()
+        loop.create_task(send_email(new_traveller_email, email_title.format('email change request code'), [f"{email_content_code.format('email change request')}{traveller_verification}"]))
 
-    return format_res_err(event, 'InvalidPassword', 'The password is invalid.')
+    else:
+        traveller_verification = '123456'
+
+    email_change_request_codes[account.traveller_id] = [traveller_verification, new_traveller_email]
+
+    return format_res(event)
 
 @account
 def reset_traveller_email_final(event: str, traveller_email_code: str, account: Traveller):
-    """Called after resetTravellerEmail to perform the actual operation.
+    """Called after resetTravellerEmail to perform the actual operation with the given code.
 
     Possible Responses:
         resetTravellerEmailFinalReply: The traveller's email has been successfully reset.
@@ -999,28 +1045,93 @@ def reset_traveller_email_final(event: str, traveller_email_code: str, account: 
         resetTravellerEmailNoCode: You haven't called resetTravellerEmail.
         resetTravellerEmailFinalCodeExceedsLimit: The code's length is not VERIFICATION_CODE_LENGTH.
         resetTravellerEmailFinalInvalidCode: The verification code is invalid.
-    """    
+    """
+
+    """ Reset traveller email. """
     if account.traveller_id not in email_change_request_codes:
         return format_res_err(event, 'NoCode', 'No email change code has been requested.')
 
-    if len(traveller_email_code) == VERIFICATION_CODE_LENGTH:
-        if email_change_request_codes[account.traveller_id][0] == traveller_email_code:
-            
-            old_traveller_email = account.traveller_email
-
-            if IS_LOCAL:
-                travellers[account.traveller_id].traveller_email = email_change_request_codes[account.traveller_id][1]
-            else:
-                update_user(account.traveller_id, travellerEmail=email_change_request_codes[account.traveller_id][1])
-
-            if not IS_TEST:
-                loop.create_task(send_email(old_traveller_email, email_title.format('email changed successfully'), [email_content_changed.format('email')]))
-
-            return format_res(event)
-        else:
-            return format_res_err(event, 'InvalidCode', 'The provided code is invalid.')
-    else:
+    if not len(traveller_email_code) == VERIFICATION_CODE_LENGTH:
         return format_res_err(event, 'CodeExceedsLimit', f'The verification code must consist of exactly {VERIFICATION_CODE_LENGTH} characters.')
+
+    if not email_change_request_codes[account.traveller_id][0] == traveller_email_code:
+        return format_res_err(event, 'InvalidCode', 'The provided code is invalid.')
+        
+    old_traveller_email = account.traveller_email
+
+    if IS_LOCAL:
+        travellers[account.traveller_id].traveller_email = email_change_request_codes[account.traveller_id][1]
+    else:
+        update_user(account.traveller_id, travellerEmail=email_change_request_codes[account.traveller_id][1])
+
+    if not IS_TEST:
+        loop.create_task(send_email(old_traveller_email, email_title.format('email changed'), [email_content_changed.format('email')]))
+
+    return format_res(event)
+
+@account
+def reset_traveller_name(event: str, traveller_password: str, new_traveller_name: str, account: Traveller):
+    """Changes a traveller's name, of it's not taken.
+
+    Possible Responses:
+        resetTravellerNameReply: The traveller's name has been changed successfully.
+
+        resetTravellerNameNameExceedsLimit: The provided name exceeds the current name length limitations.
+        resetTravellerNameNameInvalidCharacters: The name of the account contains invalid characters.
+        resetTravellerNameNameTaken: The new traveller's name is already used by another account.
+        resetTravellerNameNameAlreadyChanged: The traveller's name has already been changed once.
+
+        resetTravellerNamePasswordExceedsLimit: The provided password exceeds current password length limitations.
+
+        resetTravellerNameInvalidPassword: The given password doesn't match the original one.
+    """    
+    
+    """ Username checks. """
+    new_traveller_name = new_traveller_name.strip()
+
+    if not utils.check_length(new_traveller_name, MIN_USERNAME_LENGTH, MAX_USERNAME_LENGTH):
+        return format_res_err(event, 'NameExceedsLimit', length_invalid.format('New traveller name', MIN_USERNAME_LENGTH, MAX_USERNAME_LENGTH))
+
+    if not utils.check_chars(new_traveller_name, USERNAME_CHARACTERS):
+        return format_res_err(event, 'NameInvalidCharacters', chars_invalid.format('The new traveller name'))
+
+    """ Password checks. """
+    traveller_password = utils.remove_whitespace(traveller_password)
+
+    traveller_password_checks = utils.check_password(traveller_password)
+
+    if traveller_password_checks:
+        return format_res_err(event, traveller_password_checks[0], traveller_password_checks[1])
+
+    if not checkpw(bytes(traveller_password, 'ascii'), account.traveller_password):
+        return format_res_err(event, 'InvalidPassword', 'The password is invalid.')
+
+    """ Reset the traveller name. """
+    if is_username_taken(new_traveller_name):
+        return format_res_err(event, 'NameTaken', 'Another traveller is already using this username.')
+
+    has_changed_name = False
+
+    if IS_LOCAL:
+        has_changed_name = travellers[account.traveller_id].has_changed_name
+
+    else:
+        has_changed_name = get_users(True)[account.traveller_id]['hasChangedName']
+
+    if has_changed_name:
+        return format_res_err(event, 'NameAlreadyChanged', 'The traveller\'s name has already been changed once.')
+
+    if IS_LOCAL:
+        travellers[account.traveller_id].traveller_name = new_traveller_name
+        travellers[account.traveller_id].has_changed_name = True
+    
+    else:
+        update_user(account.traveller_id, travellerName=new_traveller_name, hasChangedName=True)
+
+    if not IS_TEST:
+        loop.create_task(send_email(account.traveller_email, email_title.format('username changed'), [f"{email_content_changed.format('username')}"]))
+
+    return format_res(event)
 
 """ Tasks """
 

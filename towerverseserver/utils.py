@@ -170,19 +170,8 @@ def log_error_and_exit(exit_msg: str, exc: Exception) -> None:
     else:
         log.warn('Invalid exception passed to print_error_and_exit, aborting operation.')
 
-def format_password(password: str) -> str:
-    """Formats a provided password for checking later on with check_password.
-
-    Args:
-        password (str): The target password.
-
-    Returns:
-        str: The formatted password.
-    """
-    return ''.join([letter for letter in password if letter not in whitespace])
-
 def check_password(password: str) -> list:
-    """Tests a password with multiple cases. Should be used in combination with format_password.
+    """Tests a password with multiple cases. Should be used in combination with remove_whitespace.
 
     Args:
         password (str): The target password.
@@ -227,6 +216,17 @@ def check_email(email: str) -> EmailNotValidError:
     if email_error:
         return ['EmailInvalidFormat', str(email_error)]
 
+def remove_whitespace(target: str) -> str:
+    """Removes whitespace from a string.
+
+    Args:
+        target (str): The target string.
+
+    Returns:
+        str: The target string, formatted
+    """
+    return ''.join([letter for letter in target if letter not in whitespace])
+    
 def check_chars(target: str, target_chars: str) -> bool:
     """Checks if the target string only contains target characters.
 
