@@ -266,7 +266,7 @@ def get_user(traveller_id: str, check_in_extra: bool = False) -> Traveller:
         if traveller_id in users:
             traveller = users[traveller_id]
 
-    if check_in_extra and not traveller:
+    if check_in_extra:
         if traveller_id in accounts_to_create:
             traveller = accounts_to_create[traveller_id]
 
@@ -584,7 +584,7 @@ def setup_mongo(mongodb_username: str, mongodb_password: str) -> None:
         exit()
 
     except ConfigurationError:
-        log.error('The TowerVerse database may be temporarily down, exiting.')
+        log.error('The TowerVerse database may be temporarily down or there\'s no internet connection, exiting.')
         exit()
 
 def setup_email(email_address: str, email_password: str) -> None:
