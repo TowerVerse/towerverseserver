@@ -22,7 +22,7 @@ Extra info:
 """
 
 """ Get the time for imports to be loaded. """
-from time import time
+from time import gmtime, time
 
 imports_start_time = time()
 
@@ -45,9 +45,6 @@ from socket import gethostbyname, gethostname
 """ Specifying variable types. """
 from typing import Callable, Dict, List, Set
 
-""" Checking letters. """
-from string import whitespace
-
 """ Inspect functions. """
 from inspect import getfullargspec
 
@@ -59,6 +56,7 @@ from uuid import uuid4
 
 """ Logging levels. """
 from logging import StreamHandler, getLogger
+from time import strftime
 
 """ 3RD-PARTY MODULES """
 
@@ -68,13 +66,11 @@ from websockets.client import WebSocketClientProtocol
 from websockets.exceptions import ConnectionClosed
 from websockets.legacy.server import WebSocketServerProtocol
 
-""" Email validation. """
-from email_validator import EmailNotValidError, validate_email
-
 """ Password hashing. """
 from bcrypt import checkpw, gensalt, hashpw
 
-""" MongoDB. """
+""" MongoDB-related. """
+from bson.objectid import ObjectId
 from pymongo import MongoClient
 from pymongo.database import Database
 from pymongo.errors import ConfigurationError, OperationFailure
@@ -97,10 +93,8 @@ parser.add_argument('--log', help='Specifies the level of logging where: 10 Verb
 
 parser_args = parser.parse_args()
 
-""" Used to print logs. """
 logHandler = StreamHandler()
 
-""" Available by other scripts aswell. """
 log = getLogger(LOGGER_NAME)
 
 log.setLevel(parser_args.log)
@@ -136,6 +130,12 @@ wss_accounts: Dict[str, str] = {}
 """ Accounts to create when verified. """
 accounts_to_create: Dict[str, TempTraveller] = {}
 
+""" Email change request codes to verify. """
+email_change_request_codes: Dict[str, str] = {}
+
+""" Password change request codes to verify. """
+password_change_request_codes: Dict[str, str] = {}
+
 """ Whether or not this is a locally-hosted server. """
 IS_LOCAL = parser_args.local
 
@@ -161,6 +161,9 @@ no_account_events: Dict[str, Callable] = {}
 """ List of all decorators, checked by request_switcher. """
 decorators_list: Set[str] = set({'account', 'no_account'})
 
+""" List of all tasks to run. """
+tasks_list: Dict[str, Callable] = {}
+
 """ Utilities which need server variables to work. """
 
 def format_res(event_name: str, event_reply: str = 'Reply', **kwargs) -> dict:
@@ -181,14 +184,14 @@ def format_res(event_name: str, event_reply: str = 'Reply', **kwargs) -> dict:
     return dumps(result_data)
 
 def format_res_err(event_name: str, event_reply: str, error_message: str, is_no_event_response: bool = False, no_original_event: bool = False, **kwargs) -> dict:
-    """Same as above but for errors.
+    """Same as format_res but for errors.
 
     Args:
-        event_name (str): The name of the event. Set to '' so as not to pass originalEvent to the response.
+        event_name (str): The name of the event. 
         event_reply (str): The string to concatenate to the event_name which will be the reply.
         error_message (str): The message of the error.
         is_no_event_response (bool): If True, event_reply wont be concatenated to event_name. This is helpful for general errors.
-        no_original_event (bool): Whether or not the originalEvent key should be provided. Useful when you can't make it out.
+        no_original_event (bool): Whether or not the originalEvent key should be provided. Useful when you can't make the event out.
 
     Returns:
         dict: The formatted error response.
@@ -217,21 +220,118 @@ def has_account(request_ip: str) -> bool:
     """
     return request_ip in wss_accounts
 
-def get_users() -> dict:
-    """Returns the users which are created. Only for the database version.
+def get_users(pure: bool = False) -> Dict[str, Traveller]:
+    """Returns the users which are created. Only for the database version. 
+
+    Args:
+        pure (bool): Whether or not a Traveller should be returned otherwise the raw data will be.
 
     Returns:
-        dict: The users dictionary.
+        Dict[str, Traveller]: The users dictionary.
     """
 
-    result_users = {}
+    result_users: Dict[str, Traveller] = {}
 
-    """ Gets all ids in the users collection. """
     for cursor in mdb.users.find({}):
-        del cursor['_id']
-        result_users[list(cursor.keys())[0]] = list(cursor.values())[0]
+        user_dict = list(cursor.values())[1]
+        user_id = list(cursor.keys())[1]
+
+        mongo_id = str(cursor['_id']).split('\'')[0]
+
+        if not pure:
+            result_users[user_id] = Traveller(user_id, user_dict['travellerName'], user_dict['travellerEmail'],
+                                            user_dict['travellerPassword'], user_dict['hasChangedName'])
+        else:
+            user_dict.update({'mongoId': mongo_id})
+            result_users[user_id] = user_dict
 
     return result_users
+
+def get_user(traveller_id: str, check_in_extra: bool = False) -> Traveller:
+    """Finds a user by id.
+
+    Args:
+        traveller_id (str): The traveller id.
+        check_in_extra (bool, optional): Also checks in extra dictionaries. Defaults to False.
+
+    Returns:
+        Traveller: The Traveller object, if the traveller is found.
+    """
+    traveller: Traveller = None
+
+    if IS_LOCAL:
+        if traveller_id in travellers:
+            traveller = travellers[traveller_id]
+
+    else:
+        users = get_users()
+
+        if traveller_id in users:
+            traveller = users[traveller_id]
+
+    if check_in_extra:
+        if traveller_id in accounts_to_create:
+            traveller = accounts_to_create[traveller_id]
+
+    return traveller
+
+def get_user_by_email(traveller_email: str, check_in_extra: bool = False) -> Traveller:
+    """Finds a traveller account by his email.
+
+    Args:
+        traveller_email (str): The traveller email.
+        check_in_extra (bool, optional): Also checks in extra dictionaries. Defaults to False.
+
+    Returns:
+        Traveller: The Traveller object, if the traveller is found.
+    """
+    traveller: Traveller = None
+
+    if IS_LOCAL:
+        for key, item in travellers.items():
+            if item.traveller_email == traveller_email:
+                traveller = get_user(key)
+    else:
+        for key, item in get_users().items():
+            if item.traveller_email == traveller_email:
+                traveller = get_user(key)
+
+    if check_in_extra:
+        for key, item in accounts_to_create.items():
+            if item.traveller_email == traveller_email:
+                traveller = get_user(key, True)
+
+    return traveller
+
+def update_user(user_id: int, **kwargs) -> Traveller:
+    """Updates a user's db keys, according to what is passed. If the key doesn't exist, it is created otherwise it's updated. 
+    
+    Args:
+        user_id (int): The traveller's id.
+    
+    Returns:
+        Traveller: The updated Traveller instance.
+    """
+    users = get_users(True)
+
+    if not user_id in users:
+        log.error('Invalid id has been passed to update_user, aborting operation')
+        return
+
+    traveller = users[user_id]
+
+    update_dict: Dict[str, str] = {'$set': {user_id: {}}}
+
+    for key, value in kwargs.items():
+        update_dict['$set'][user_id][key] = value
+
+    for key, value in traveller.items():
+        if key not in kwargs.keys() and key != 'mongoId':
+            update_dict['$set'][user_id][key] = value
+
+    mdb.users.find_one_and_update({'_id': ObjectId(traveller['mongoId'])}, update_dict)
+
+    return get_user(user_id)
 
 async def send_email(to: str, title: str, content: List[str]) -> None:
     """Sends an email, asynchronously.
@@ -241,425 +341,117 @@ async def send_email(to: str, title: str, content: List[str]) -> None:
         title (str): The title of the email.
         content (List[str]): The content of the email. 1: Body, 2: Custom html, 3: An image.
     """    
-    try:
-        validate_email(to)
-        email_smtp.send(to, title, content)
-    except EmailNotValidError as e:
-        utils.log_error('Invalid email provided to send_email, aborting operation', e)
+    to_error = utils.check_email(to)
 
-""" Decorators and checks. """
+    if to_error:
+        utils.log_error('Invalid email provided to send_email, aborting operation.', str(to_error))
+        return
 
-def account(event: Callable):
-    """Decorator. Marks an event as only accessible with an account. Overwrites duplicates. Must be passed without transforming the event name first.
+    email_smtp.send(to, title, content)
 
-    Args:
-        event (Callable): The event to mark.
-    """
-
-    def wrapper(event: Callable):
-
-        name = event.__name__
-
-        """ Don't mind if it overwrites another one, just warn. """
-        if name in account_events:
-            log.warn(f'The event name {name} is already in account_events. Consider checking for duplicates to prevent possible errors.')
-
-        account_events[name] = event
-
-    return wrapper(event)
-
-def account_check(event: str, wss: WebSocketClientProtocol) -> bool:
-    """account_only decorator check. """
-    if not has_account(wss.remote_address[0]):
-        return format_res_err(event, 'AccountOnly', 'You must login to an account first before using this event.', True)
-
-def no_account(event: Callable):
-    """Decorator. Marks an event as only accessible without an account. Overwrites duplicates. Must be passed without transforming the event name first.
+def is_user_logged_in(traveller_id: str):
+    """Checks if someone is currently logged into a traveller account.
 
     Args:
-        event (Callable): The event to mark.
-    """
+        traveller_id (str): The account's id.
 
-    def wrapper(event: Callable):
+    Returns:
+        bool: Whether or not someone is currently linked to the account.
+    """    
+    return traveller_id in wss_accounts.values()
 
-        name = event.__name__
-
-        if name in no_account_events:
-            log.warn(f'The event name {name} is already in no_account_events. Consider checking for duplicates to prevent possible errors.')
-
-        no_account_events[name] = event
-
-    return wrapper(event)
-
-def no_account_check(event: str, wss: WebSocketClientProtocol) -> bool:
-    """ no_account_only decorator check. """
-    if has_account(wss.remote_address[0]):
-        return format_res_err(event, 'NoAccountOnly', 'You must logout of your current account first before using this event.', True)
-
-""" Events """
-
-@no_account
-def event_create_traveller(event: str, traveller_name: str, traveller_email: str, traveller_password: str):
-    """Schedules an account for creation, after it's verified with verifyTraveller.
+def is_username_taken(traveller_name: str) -> bool:
+    """Checks if a username is taken by another account.
 
     Args:
-        traveller_name (str): The name of the traveller.
-        traveller_email (str): The email of the traveller.
-        traveller_password (str): The password of the traveller.
+        traveller_name (str): The target traveller name.
 
-    Possible Responses:
-        createTravellerReply: The websocket has successfully created a traveller. No additional hashes have to be passed for future account-related methods.
-
-        createTravellerEmailInvalid: The provided email is not formatted correctly.
-        createTravellerEmailInUse: The provided email is already in use.
-        createTravellerNameExceedsLimit: The provided name exceeds the current name length limitations.
-        createTravellerEmailExceedsLimit: The provided name exceeds the current email length limitations.
-        createTravellerPasswordExceedsLimit: The provided password exceeds the current password length limitations.
-        createTravellerNameBadFormat: The name of the account contains invalid characters.
-        createTravellerEmailBadFormat: The email of the account contains invalid characters.
+    Returns:
+        bool: Whether or not it is taken.
     """
 
-    """ Remember to keep the strip methods, we need the original traveller name. """
-    if not len(traveller_name.strip()) >= MIN_ACCOUNT_LENGTH or not len(traveller_name.strip()) <= MAX_ACCOUNT_LENGTH:
-        return format_res_err(event, 'NameExceedsLimit', f'Traveller name must be between {MIN_ACCOUNT_LENGTH} and {MAX_ACCOUNT_LENGTH} characters long.')
-
-    """ Validate the email, check if it has @ and a valid domain. Also check its length. We need the stripped down version. """
-    traveller_email = traveller_email.strip()
-    if not len(traveller_email) >= MIN_EMAIL_LENGTH or not len(traveller_email) <= MAX_EMAIL_LENGTH:
-        return format_res_err(event, 'EmailExceedsLimit', f'Traveller email must be between {MIN_EMAIL_LENGTH} and {MAX_EMAIL_LENGTH} characters long.')
-    
-    try:
-        validate_email(traveller_email)
-    except EmailNotValidError as e:
-        return format_res_err(event, 'EmailInvalid', str(e))
-
-    traveller_password = utils.format_password(traveller_password)
-
-    """ Pass all the password checks and return if there's an error returned. """
-    traveller_password_checks = utils.check_password(traveller_password)
-
-    if traveller_password_checks:
-        return format_res_err(event, traveller_password_checks[0], traveller_password_checks[1])
-
-    """ Character checks. """
-    for letter in traveller_name:
-        if letter not in ACCOUNT_CHARACTERS:
-            return format_res_err(event, 'NameBadFormat', f'The name of the account contains invalid characters.')
-    
-    for letter in traveller_email:
-        if letter not in EMAIL_CHARACTERS:
-            return format_res_err(event, 'EmailBadFormat', f'The email of the account contains invalid characters.')
-
-    """ Prevent duplicate emails. """
-    is_email_taken = False
-
-    """ Check in both db and local variables. """
-    if IS_LOCAL:
-        for key, item in travellers.items():
-            if item.traveller_email == traveller_email:
-                is_email_taken = True
-                break
-    else:
-        for key, item in get_users().items():
-            if item['travellerEmail'] == traveller_email:
-                is_email_taken = True
-                break
-
-    """ Also check in travellers who are awaiting authentication. """
-    for key, item in accounts_to_create.items():
-        if item.traveller_email == traveller_email:
-            is_email_taken = True
-            break
-
-    if is_email_taken:
-        return format_res_err(event, 'EmailInUse', 'This email is already in use by another account.')
-
-    """ Visible by fetchTravellers and its not at all private. """
-    traveller_id = utils.gen_id() if not IS_TEST else '123'
-
-    """ rounds=13 so as to exceed the 214ms bare limit according to: https://security.stackexchange.com/questions/3959/recommended-of-iterations-when-using-pkbdf2-sha256. """
-    hashed_password = hashpw(bytes(traveller_password, encoding='ascii'), gensalt(rounds=13))
-
-    """ Add the account to a temporary dictionary until it's verified. Also generate the target verification code. """
-    traveller_verification = utils.gen_verification_code() if not IS_TEST else '123456'
-
-    accounts_to_create[traveller_id] = TempTraveller(traveller_id, traveller_name, traveller_email, hashed_password, traveller_verification)
-
-    """ Send email verification code, doesn't need to block. Don't do this for tests. """
-    if not IS_TEST:
-        loop.create_task(send_email(traveller_email, 'GateVerse verification code', [f'This is your email verification code: {traveller_verification}']))
-
-    return format_res(event, travellerId=traveller_id)
-
-@no_account
-def event_login_traveller(event: str, traveller_email: str, traveller_password: str, wss: WebSocketServerProtocol):
-    """Logs in a websocket connection to a traveller account.
-
-    Args:
-        traveller_email (str): The traveller account's email to login to.
-        traveller_password (str): The traveller account's password to check against.
-
-    Possible Responses:
-        loginTravellerReply: The websocket has successfully connected to a traveller. No additional keys have to be passed for future account-related methods.
-
-        loginTravellerNotFound: The traveller with the required ID could not be found.
-        loginTravellerInvalidPassword: The given password doesn't match the original one.
-        loginTravellerAccountTaken: The target account is already taken by another IP.
-        loginTravellerPasswordExceedsLimit: The provided password exceeds current password length limitations.
-        loginTravellerEmailBadFormat: The email of the account contains invalid characters.
-    """
-
-    """ Validate the email, check if it has @ and a valid domain. """
-    try:
-        validate_email(traveller_email)
-    except EmailNotValidError as e:
-        return format_res_err(event, 'EmailInvalid', str(e))
-
-    """ We need the stripped down version here aswell. """
-    traveller_password = traveller_password.strip()
-
-    """ Remove extra whitespace. """
-    temp_traveller_password = ''
-
-    for letter in traveller_password:
-        if letter not in whitespace:
-            temp_traveller_password += letter
-
-    traveller_password = temp_traveller_password
-
-    """ Pass all the password checks and return if there's an error returned. """
-    traveller_password_checks = utils.check_password(traveller_password)
-
-    if traveller_password_checks:
-        return format_res_err(event, traveller_password_checks[0], traveller_password_checks[1])
-
-    """ Check invalid characters.  """
-    for letter in traveller_email:
-        if letter not in EMAIL_CHARACTERS:
-            return format_res_err(event, 'EmailBadFormat', f'The email of the account contains invalid characters.')
-
-    """ Determine which id the email is associated with. """
-    traveller_id = ''
+    is_name_taken = False
 
     if IS_LOCAL:
-        for key, item in travellers.items():
-            if item.traveller_email == traveller_email:
-                traveller_id = key
+        is_name_taken = len([traveller for traveller in travellers.values() if traveller.traveller_name == traveller_name]) > 0
+
     else:
-        for key, item in get_users().items():
-            if item['travellerEmail'] == traveller_email:
-                traveller_id = key
+        is_name_taken = len([traveller for traveller in get_users().values() if traveller.traveller_name == traveller_name]) > 0
 
-    if len(traveller_id) == 0:
-        return format_res_err(event, 'NotFound', 'The specified traveller could not be found.')
+    if not is_name_taken:
+        is_name_taken = len([traveller for traveller in accounts_to_create.values() if traveller.traveller_name == traveller_name]) > 0
 
-    if checkpw(bytes(traveller_password, encoding='ascii'), travellers[traveller_id].traveller_password if IS_LOCAL
-                                                        else get_users()[traveller_id]['travellerPassword']):
-        """ Check if someone has already logged into this account. """
-        for key, item in wss_accounts.items():
-            if item == traveller_id:
-                return format_res_err(event, 'AccountTaken', 'Another user has already logged into this account.')
-    
-        """ Link the IP to an account. """
-        wss_accounts[wss.remote_address[0]] = traveller_id
-
-        return format_res(event, travellerId=traveller_id)
-
-    return format_res_err(event, 'InvalidPassword', f'The password is invalid.')
-
-@no_account
-def event_verify_traveller(event: str, traveller_id: str, traveller_code: str, wss: WebSocketServerProtocol):
-    """Verifies a traveller account, if present and the code is correct.
-
-    Args:
-        traveller_id (str): The traveller id of whom to verify the email.
-        traveller_code (str): The traveller verification code.
-
-    Possible Responses:
-        verifyTravellerReply: The email of the traveller has been successfully verified.
-        
-        verifyTravellerNotFound: The specified traveller could not be found.
-        verifyTravellerInvalidCode: The provided code is invalid.
-        verifyTravellerCodeExceedsLimit: The code's length is not VERIFICATION_CODE_LENGTH.
-    """
-    
-    if traveller_id not in accounts_to_create:
-        return format_res_err(event, 'NotFound', 'The specified traveller account could not be found.')
-
-    if len(traveller_code) == VERIFICATION_CODE_LENGTH:
-        if accounts_to_create[traveller_id].traveller_code == traveller_code:
-            
-            target_acc = accounts_to_create[traveller_id]
-            
-            """ Actually create the account here and link. """
-            if IS_LOCAL:
-                travellers[traveller_id] = Traveller(target_acc.traveller_id, target_acc.traveller_name, target_acc.traveller_email, target_acc.traveller_password)
-            else:
-                mdb.users.insert_one({traveller_id: {'travellerName': target_acc.traveller_name, 'travellerEmail': target_acc.traveller_email,
-                                                'travellerPassword': target_acc.traveller_password}})
-            
-            wss_accounts[wss.remote_address[0]] = traveller_id    
-            
-            """ Remove the created account from the temp list. """
-            del accounts_to_create[traveller_id]
-            
-            return format_res(event, travellerId=traveller_id)
-        else:
-            return format_res_err(event, 'InvalidCode', 'The provided code is invalid.')
-    else:
-        return format_res_err(event, 'CodeExceedsLimit', f'The verification code must consist of exactly {VERIFICATION_CODE_LENGTH} characters.')
-
-@account
-def event_logout_traveller(event: str, wss: WebSocketClientProtocol):
-    """Logs out a user from his associated traveller account. 
-
-    Possible Responses:
-        logoutTravellerReply: The IP has been successfully unliked from its associated account.
-    """
-    del wss_accounts[wss.remote_address[0]]
-
-    return format_res(event)
-
-@account
-def event_fetch_travellers(event: str):
-    """Fetches every single traveller's info.
-        
-    Possible Responses:
-        fetchTravellersReply: The existing traveller IDs have been successfully fetched.
-    """
-    return format_res(event, travellerIds=[id for id in travellers] if IS_LOCAL else [id for id in get_users()])
-
-@account
-def event_fetch_traveller(event: str, traveller_id: str):
-    """Fetches a traveller's info, if he exists in the database.
-
-    Args:
-        traveller_id (str): The id of the traveller to fetch info from.
-
-    Possible Responses:
-        fetchTravellerReply: Info about a traveller has been successfully fetched.
-
-        fetchTravellerNotFound: The traveller with the required ID could not be found.
-    """
-    traveller_name = ''
-
-    if IS_LOCAL:
-        if traveller_id in travellers:
-            traveller_name = travellers[traveller_id].traveller_name
-    else:
-        if traveller_id in get_users():
-            traveller_name = get_users()[traveller_id]['travellerName']
-
-    if traveller_name:
-        return format_res(event, travellerName=traveller_name, travellerId=traveller_id)
-
-    return format_res_err(event, 'NotFound', f'Traveller with id {traveller_id} not found.')
-
-@account
-def event_total_travellers(event: str):
-    """Returns the number of created traveller accounts.
-        
-    Possible Responses:
-        totalTravellersReply: The number of existing travellers has been successfully fetched.
-    """
-    return format_res(event, totalTravellers=len(travellers) if IS_LOCAL else len(get_users()))
-
-@account
-def event_online_travellers(event: str):
-    """Returns the number of online travellers.
-    
-    Possible Responses:
-        onlineTravellersReply: The number of online travellers at the moment.
-    """
-    return format_res(event, onlineTravellers=len(wss_accounts))
+    return is_name_taken
 
 """ Main """
 
 async def request_switcher(wss: WebSocketClientProtocol, data: dict):
-    """Switches events according to the data provided.
-
-    Args:
-        wss (WebSocketClientProtocol): The client waiting for a response.
-        data (dict): The data sent by the client.
-
-    Returns:
-        dict: The response according to the request. Nothing may be returned, which means the request is invalid and that __current_error should be output.
+    """Calls events, dynamically.
 
     Possible Responses:
-        EventNotFound: The given event could not be found.
-        EventUnknownError: There was an error processing the event.
-        FormatError: The format of the request is incorrect.
         EventEmpty: The event key is empty.
+        EventNotFound: The given event could not be found.
+        FormatError: The format of the request is incorrect.
+        EventUnknownError: There was an error processing the event.
 
-        Decorator checks:
+        Decorator Check Responses:
             AccountOnly: The requested event requires that this IP be associated with an account.
             NoAccountOnly: The requested event requires that this IP NOT be associated with an account.
     """
 
-    """ Refuse to process dictionaries without an event key, which must be atleast 1 character long. """
     try:
         event = data['event']
         assert len(data['event']) > 0
     except (KeyError, AssertionError):
-        return format_res_err('', 'EventEmpty', 'The event key is empty or it isn\'t provided.', True, True)
+        return format_res_err('', 'EventEmpty', 'The event key is empty/isn\'t provided.', True, True)
 
-    """ Transform it early on. """
     transformed_event = utils.transform_to_call(event)
 
-    """ Find the function first to run some checks. """
     target_function: function = None
     
-    """ Check if it's in one of the decorator lists which prohibit access. Don't pass the transformed one. """
+    """ Run decorators and their respective checks. """
     for decorator in decorators_list:
 
-        """ Find if the requested event is in one of the decorators. """
         decorator_events = dict(globals())[f'{decorator}_events']
         
         if transformed_event in decorator_events:
 
-            """ Found, run checks. """
             decorator_check_func = dict(globals())[f'{decorator}_check']
 
             decorator_check_args = {'event': event}
 
-            """ Pass requested client. """
             if 'wss' in getfullargspec(decorator_check_func).args:
                 decorator_check_args['wss'] = wss
 
             decorator_check_result = decorator_check_func(**decorator_check_args)
 
-            """ If it has returned something, it should be formatted already to be sent right back to the requestee as an error. """
             if decorator_check_result:
                 return decorator_check_result
 
-            """ If it has passed, go on to assign the function to call. """
             target_function = decorator_events[transformed_event]
 
     if not target_function:
-        """ Events MUST contain one decorator or the other, throw an error. """
         return format_res_err(event, 'EventNotFound', 'This event doesn\'t exist.', True)
 
-    """ Check if arguments are given. """
     target_arg_names = getfullargspec(target_function).args
 
-    """ Keyword arguments to pass to the function. """
     target_args = {}
 
     for arg, value in data.items():
-        if utils.transform_to_call(arg, True) in target_arg_names:
-            arg_to_add = utils.transform_to_call(arg, True)
+        if utils.transform_to_call(arg) in target_arg_names:
+            arg_to_add = utils.transform_to_call(arg)
                 
-            """ Preserve event name. """
             if arg == 'event':
                 arg_to_add = arg
 
             target_args[arg_to_add] = value
 
-    """ Custom arguments to pass manually. """
     if 'wss' in target_arg_names:
         target_args['wss'] = wss
 
-    """ Check for arguments before calling, the call may not error but some arguments may be empty. """
+    if 'account' in target_arg_names:
+        target_args['account'] = get_user(wss_accounts[wss.remote_address[0]])
+
     args_errored = utils.check_loop_data(target_args, target_arg_names)
 
     if args_errored:
@@ -667,14 +459,15 @@ async def request_switcher(wss: WebSocketClientProtocol, data: dict):
 
     try:
         return target_function(**target_args)
+
     except Exception as e:
 
-        """ Create bug report. """
         if IS_LOCAL or IS_TEST:
             utils.log_error(f'Error occured while calling {event}', e)
         else:
             try:
-                mdb.logs.insert_one({f'bug-{str(uuid4())}': f'{e.__class__.__name__}{e}'})
+                mdb.logs.insert_one({f'bug-{str(uuid4())}': {'error': f'{e.__class__.__name__}: {e}', 'date': strftime(strf_format, gmtime())}})
+                log.info('A bug report has been created, check the database\'s logs collection.')
             except:
                 utils.log_error_and_exit('Fatal database error', e)
 
@@ -683,20 +476,15 @@ async def request_switcher(wss: WebSocketClientProtocol, data: dict):
 async def serve(wss: WebSocketClientProtocol, path: str) -> None:
     """Called only by websockets.serve.
 
-    Args:
-        wss (WebSocketClientProtocol): The websocket client.
-        path (str): The path which the client wants to access.
-
     Possible Responses:
-        JSONFormatError: The request contains invalid JSON.
         RatelimitError: The IP has reached the max requests allowed at a specified time length.
+        JSONFormatError: The request contains invalid JSON.
     """
 
     global wss_accounts
 
     log.info(f'A traveller has connected. Travellers online: {len(wss_accounts)}')
 
-    """ Set to 0 ONLY if the ip doesn't exist since previous IPs are stored even if it disconnects. """
     if wss.remote_address[0] not in ip_requests:
         ip_requests[wss.remote_address[0]] = 0
 
@@ -706,26 +494,26 @@ async def serve(wss: WebSocketClientProtocol, path: str) -> None:
 
             result = ''
 
-            """ Prevent malicious intents. """
-            if ip_requests[wss.remote_address[0]] > IP_RATELIMIT_MAX:
+            try:
+                if ip_requests[wss.remote_address[0]] > IP_RATELIMIT_MAX:
 
-                """ Send it in-place, dont allow it to go further into request_switcher. """
-                await wss.send(format_res_err('', 'RatelimitError', 'You are ratelimited.', True, True))
-                continue
+                    await wss.send(format_res_err('', 'RatelimitError', 'You are ratelimited.', True, True))
+                    continue
 
-            ip_requests[wss.remote_address[0]] += 1
+            except KeyError:
+                ip_requests[wss.remote_address[0]] = 0
 
-            """ Don't even handle empty requests, only ratelimit them. """
+            if not IS_TEST:
+                ip_requests[wss.remote_address[0]] += 1
+
             if len(response.strip()) == 0:
                 continue
 
-            """ Determine data validity. """
             try:
                 data = loads(response)
 
                 assert isinstance(data, dict)
                 
-                """ Prevent strange values. """
                 for key, item in data.items():
                     assert isinstance(key, str)
                     assert isinstance(item, str)
@@ -733,22 +521,18 @@ async def serve(wss: WebSocketClientProtocol, path: str) -> None:
             except (JSONDecodeError, AssertionError):
                 result = format_res_err('', 'JSONFormatError', 'The request contains invalid JSON.', True, True)
 
-            """ Send the premature error straight away to prevent errors with data later on. """
             if result:
                 await wss.send(result)
                 continue
 
             global current_ref
 
-            """ Remember to return passed reference. """
             if 'ref' in data:
                 current_ref = data['ref']
 
-            """ Check for previous responses. """
             if not result:
                 result = await request_switcher(wss, data)
 
-            """ If nothing is returned, skip this call. """
             if not result:
                 continue
 
@@ -768,10 +552,7 @@ async def serve(wss: WebSocketClientProtocol, path: str) -> None:
             current_ref = None
 
         except ConnectionClosed as e:
-            """ Don't remove traveller from IP requests, prevent spam. """
-
-            """ Remove a traveller from the linked accounts list, not online anymore. Only for production servers. """
-            if has_account(wss.remote_address[0]) and not IS_LOCAL:
+            if has_account(wss.remote_address[0]) and not IS_TEST:
                 del wss_accounts[wss.remote_address[0]]
 
             log.info(f'A traveller has disconnected. Code: {e.code} | Travellers online: {len(wss_accounts)}')
@@ -779,7 +560,7 @@ async def serve(wss: WebSocketClientProtocol, path: str) -> None:
             break
 
 def setup_mongo(mongodb_username: str, mongodb_password: str) -> None:
-    """Sets up the mongo database for production servers.
+    """Sets up MongoDB for production servers.
 
     Args:
         mongodb_username (str): The username of an authored user of the database.
@@ -796,7 +577,7 @@ def setup_mongo(mongodb_username: str, mongodb_password: str) -> None:
 
         mdb = mdbclient[mongo_database_name]
 
-        """ Prevent cold-booting MongoDB's first request in responses, use a random collection. """
+        """ Prevent cold-booting MongoDB requests. """
         mdb.some_random_collection.count_documents({})
 
         log.info(f'Successfully setup MongoDB in {int(round(time() - start, 2) * 1000)} ms.')
@@ -806,7 +587,7 @@ def setup_mongo(mongodb_username: str, mongodb_password: str) -> None:
         exit()
 
     except ConfigurationError:
-        log.error('The TowerVerse database may be temporarily down, exiting.')
+        log.error('The TowerVerse database may be temporarily down or there\'s no internet connection, exiting.')
         exit()
 
 def setup_email(email_address: str, email_password: str) -> None:
@@ -816,19 +597,648 @@ def setup_email(email_address: str, email_password: str) -> None:
         email (str): The target email.
         password (str): The email's password.
     """
-    try:
-        validate_email(email_address)
-    except EmailNotValidError as e:
-        utils.log_error_and_exit('Error in setup_email', e)
+    email_address_error = utils.check_email(email_address)
+
+    if email_address_error:
+        utils.log_error_and_exit('Invalid email provided for setup_email', str(email_address_error))
 
     global email_smtp
     email_smtp = SMTP(email_address, email_password)
     
     log.info('Successfully setup email account.')
 
+""" Decorators and checks. """
+
+def task(task: Callable):
+    """Decorator. Marks a function as a task.
+    
+    Args:
+        task (Callable): The task to mark.
+    """
+    
+    def wrapper(task: Callable):
+
+        name = task.__name__
+
+        if name in tasks_list:
+            log.warn(wrapper_alr_exists.format('task', name))
+
+        tasks_list[name] = task
+
+    return wrapper(task)
+
+def account(event: Callable):
+    """Decorator. Marks an event as only accessible with an account. Overwrites duplicates.
+
+    Args:
+        event (Callable): The event to mark.
+    """
+
+    def wrapper(event: Callable):
+
+        name = event.__name__
+
+        """ Don't mind if it overwrites another one, just warn. """
+        if name in account_events:
+            log.warn(wrapper_alr_exists.format('account only event', name))
+
+        account_events[name] = event
+
+    return wrapper(event)
+
+def account_check(event: str, wss: WebSocketClientProtocol) -> bool:
+    """ account_only decorator check. """
+    if not has_account(wss.remote_address[0]):
+        return format_res_err(event, 'AccountOnly', 'You must login to an account first before using this event.', True)
+
+def no_account(event: Callable):
+    """Decorator. Marks an event as only accessible without an account. Overwrites duplicates.
+
+    Args:
+        event (Callable): The event to mark.
+    """
+
+    def wrapper(event: Callable):
+
+        name = event.__name__
+
+        if name in no_account_events:
+            log.warn(wrapper_alr_exists.format('no account only event', name))
+
+        no_account_events[name] = event
+
+    return wrapper(event)
+
+def no_account_check(event: str, wss: WebSocketClientProtocol) -> bool:
+    """ no_account_only decorator check. """
+    if has_account(wss.remote_address[0]):
+        return format_res_err(event, 'NoAccountOnly', 'You must logout of your current account first before using this event.', True)
+
+""" Events """
+
+""" No account only """
+
+@no_account
+def create_traveller(event: str, traveller_name: str, traveller_email: str, traveller_password: str):
+    """Schedules an account for creation, after it's verified with verifyTraveller.
+
+    Possible Responses:
+        createTravellerReply: The websocket has successfully created a traveller. verifyTraveller must now be called with the sent code.
+
+        createTravellerNameExceedsLimit: The provided name exceeds the current name length limitations.
+        createTravellerNameInvalidCharacters: The name of the account contains invalid characters.
+
+        createTravellerEmailExceedsLimit: The provided name exceeds the current email length limitations.
+        createTravellerEmailInvalidCharacters: The email of the account contains invalid characters.
+        createTravellerEmailInvalidFormat: The provided email is not formatted correctly. Possibly the domain name is omitted/invalid.
+        createTravellerEmailInUse: The provided email is already in use.
+
+        createTravellerPasswordExceedsLimit: The provided password exceeds the current password length limitations.
+    """
+
+    """ Username checks. """
+    traveller_name = traveller_name.strip()
+
+    if not utils.check_length(traveller_name, MIN_USERNAME_LENGTH, MAX_USERNAME_LENGTH):
+        return format_res_err(event, 'NameExceedsLimit', length_invalid.format('Traveller name', MIN_USERNAME_LENGTH, MAX_USERNAME_LENGTH))
+
+    if not utils.check_chars(traveller_name, USERNAME_CHARACTERS):
+        return format_res_err(event, 'NameInvalidCharacters', chars_invalid.format('The traveller name'))
+
+    """ Email checks. """
+    traveller_email = traveller_email.strip()
+
+    traveller_email_error = utils.check_email(traveller_email)
+
+    if traveller_email_error:
+        return format_res_err(event, traveller_email_error[0], traveller_email_error[1])
+
+    if get_user_by_email(traveller_email, True):
+        return format_res_err(event, 'EmailInUse', 'This email is already in use by another account.')
+
+    """ Password checks. """
+    traveller_password = utils.remove_whitespace(traveller_password)
+
+    traveller_password_checks = utils.check_password(traveller_password)
+
+    if traveller_password_checks:
+        return format_res_err(event, traveller_password_checks[0], traveller_password_checks[1])
+
+    """ Create the account. """
+    traveller_id = utils.gen_id() if not IS_TEST else '123'
+
+    """ rounds=13 so as to exceed the 214ms bare limit according to: https://security.stackexchange.com/questions/3959/recommended-of-iterations-when-using-pkbdf2-sha256. """
+    hashed_password = hashpw(bytes(traveller_password, encoding='ascii'), gensalt(rounds=13))
+
+    traveller_verification = ''
+
+    if not IS_TEST:
+        traveller_verification = utils.gen_verification_code()
+        loop.create_task(send_email(traveller_email, email_title.format('email verification code'), [f"{email_content_code.format('email verification')}{traveller_verification}"]))
+    else:
+        traveller_verification = '123456'
+
+    accounts_to_create[traveller_email] = TempTraveller(traveller_id, traveller_name, traveller_email, hashed_password, False, traveller_verification)
+
+    return format_res(event, travellerId=traveller_id)
+
+@no_account
+def login_traveller(event: str, traveller_email: str, traveller_password: str, wss: WebSocketServerProtocol):
+    """Links an IP to a traveller account.
+
+    Possible Responses:
+        loginTravellerReply: The IP has been successfully linked to a traveller account.
+
+        loginTravellerEmailExceedsLimit: The provided email exceeds the current name length limitations.
+        loginTravellerEmailInvalidCharacters: The email of the account contains invalid characters.
+        loginTravellerEmailInvalidFormat: The provided email is not formatted correctly. Possibly the domain name is omitted/invalid.
+
+        loginTravellerPasswordExceedsLimit: The provided password exceeds current password length limitations.
+
+        loginTravellerNotFound: The traveller with the requested ID could not be found.
+        loginTravellerAccountTaken: The target account is already taken by another IP.
+        loginTravellerInvalidPassword: The given password doesn't match the original one.
+    """
+
+    """ Email checks. """
+    traveller_email = traveller_email.strip()
+
+    traveller_email_error = utils.check_email(traveller_email)
+
+    if traveller_email_error:
+        return format_res_err(event, traveller_email_error[0], traveller_email_error[1])
+    
+    traveller = get_user_by_email(traveller_email)
+
+    if not traveller:
+        return format_res_err(event, 'NotFound', f'The Traveller with email {traveller_email} could not be found.')
+
+    """ Password checks. """
+    traveller_password = utils.remove_whitespace(traveller_password)
+
+    traveller_password_checks = utils.check_password(traveller_password)
+
+    if traveller_password_checks:
+        return format_res_err(event, traveller_password_checks[0], traveller_password_checks[1])
+
+    if not checkpw(bytes(traveller_password, encoding='ascii'), travellers[traveller.traveller_id].traveller_password if IS_LOCAL
+                                                            else get_users()[traveller.traveller_id].traveller_password):
+        return format_res_err(event, 'InvalidPassword', 'The password is invalid.')
+
+    """ Login to the account. """
+    if is_user_logged_in(traveller.traveller_id):
+        return format_res_err(event, 'AccountTaken', 'Another user has already logged into this account.')
+
+    wss_accounts[wss.remote_address[0]] = traveller.traveller_id
+
+    return format_res(event, travellerId=traveller.traveller_id)
+
+@no_account
+def verify_traveller(event: str, traveller_email: str, traveller_code: str, wss: WebSocketServerProtocol):
+    """Verifies a traveller account if its present and the code is correct.
+
+    Possible Responses:
+        verifyTravellerReply: The email of the traveller has been successfully verified.
+        
+        verifyTravellerEmailExceedsLimit: The provided email exceeds the current name length limitations.
+        verifyTravellerEmailInvalidCharacters: The email of the account contains invalid characters.
+        verifyTravellerEmailInvalidFormat: The provided email is not formatted correctly. Possibly the domain name is omitted/invalid.
+
+        verifyTravellerNotFound: The specified traveller could not be found.
+        verifyTravellerCodeExceedsLimit: The code's length is not VERIFICATION_CODE_LENGTH.
+        verifyTravellerInvalidCode: The verification code is invalid.
+    """
+    
+    """ Email checks. """
+    traveller_email = traveller_email.strip()
+
+    traveller_email_error = utils.check_email(traveller_email)
+
+    if traveller_email_error:
+        return format_res_err(event, traveller_email_error[0], traveller_email_error[1])
+
+    if traveller_email not in accounts_to_create:
+        return format_res_err(event, 'NotFound', f'The Traveller with email {traveller_email} could not be found.')
+
+    """ Verify the account. """
+    if not len(traveller_code) == VERIFICATION_CODE_LENGTH:
+        return format_res_err(event, 'CodeExceedsLimit', f'The verification code must consist of exactly {VERIFICATION_CODE_LENGTH} characters.')
+
+    if not accounts_to_create[traveller_email].traveller_code == traveller_code:
+        return format_res_err(event, 'InvalidCode', 'The provided code is invalid.')
+        
+    target_acc = accounts_to_create[traveller_email]
+    
+    if IS_LOCAL:
+        travellers[target_acc.traveller_id] = Traveller(target_acc.traveller_id, target_acc.traveller_name, target_acc.traveller_email,
+                                                        target_acc.traveller_password, target_acc.has_changed_name)
+    else:
+        mdb.users.insert_one({target_acc.traveller_id: {'travellerName': target_acc.traveller_name, 'travellerEmail': target_acc.traveller_email,
+                                                        'travellerPassword': target_acc.traveller_password, 'hasChangedName': False}})
+    
+    wss_accounts[wss.remote_address[0]] = target_acc.traveller_id
+    
+    del accounts_to_create[target_acc.traveller_email]
+    
+    if not IS_TEST:
+        loop.create_task(send_email(target_acc.traveller_email, email_title.format('account created successfully'),
+                                    [f'Your TowerVerse account has been successfully created with the following credentials:\n\nUsername: {target_acc.traveller_name}\n\nWe hope that you have a great time gaming!']))
+
+    return format_res(event, travellerId=target_acc.traveller_id)
+
+@no_account
+def resend_traveller_code(event: str, traveller_email: str):
+    """Re-sends a traveller's verification code.
+
+    Possible Responses:
+        resendTravellerCodeReply: The code has been re-sent successfully.
+
+        resendTravellerCodeEmailExceedsLimit: The provided email exceeds the current name length limitations.
+        resendTravellerCodeEmailInvalidCharacters: The email of the account contains invalid characters.
+        resendTravellerCodeEmailInvalidFormat: The provided email is not formatted correctly. Possibly the domain name is omitted/invalid.
+
+        resendTravellerCodeNotFound: The specified traveller could not be found.
+    """    
+
+    """ Email checks. """
+    traveller_email = traveller_email.strip()
+
+    traveller_email_error = utils.check_email(traveller_email)
+
+    if traveller_email_error:
+        return format_res_err(event, traveller_email_error[0], traveller_email_error[1])
+
+    """ Send traveller verification code. """
+    target_acc = get_user_by_email(traveller_email, True)
+
+    if not target_acc or not isinstance(target_acc, TempTraveller):
+        return format_res_err(event, 'NotFound', f'Traveller with email {traveller_email} could not be found.')
+
+    if not IS_TEST:
+        loop.create_task(send_email(traveller_email, email_title.format('email verification code'), [f"{email_content_code.format('email verification')}{target_acc.traveller_code}"]))
+    
+    return format_res(event)
+
+@no_account
+def reset_traveller_password(event: str, traveller_email: str, old_traveller_password: str, new_traveller_password: str):
+    """Resets a not-connected traveller's password.
+
+    Possible Responses:
+        resetTravellerPasswordReply: The password has been changed successfully.
+
+        resetTravellerPasswordEmailExceedsLimit: The provided email exceeds the current name length limitations.
+        resetTravellerPasswordInvalidCharacters: The email of the account contains invalid characters.
+        resetTravellerPasswordEmailInvalidFormat: The provided email is not formatted correctly. Possibly the domain name is omitted/invalid.
+
+        resetTravellerPasswordPasswordExceedsLimit: The provided password exceeds current password length limitations.
+
+        resetTravellerPasswordInvalidPassword: The given password doesn't match the original one.
+    """
+
+    """ Email checks. """
+    traveller_email = traveller_email.strip()
+
+    traveller_email_error = utils.check_email(traveller_email)
+
+    if traveller_email_error:
+        return format_res_err(event, traveller_email_error[0], traveller_email_error[1])
+
+    """ Password checks. """
+    old_traveller_password, new_traveller_password = utils.remove_whitespace(old_traveller_password), utils.remove_whitespace(new_traveller_password)
+
+    old_traveller_password_checks, new_traveller_password_checks = utils.check_password(old_traveller_password), utils.check_password(new_traveller_password)
+
+    if old_traveller_password_checks:
+        return format_res_err(event, old_traveller_password_checks[0], old_traveller_password_checks[1])
+        
+    if new_traveller_password_checks:
+        return format_res_err(event, new_traveller_password_checks[0], new_traveller_password_checks[1])
+
+    target_acc = get_user_by_email(traveller_email)
+
+    if not target_acc:
+        return format_res_err(event, 'NotFound', f'The Traveller with email {traveller_email} could not be found.')
+
+    if not checkpw(bytes(old_traveller_password, 'ascii'), target_acc.traveller_password):
+        return format_res_err(event, 'InvalidPassword', 'The password is invalid.')
+
+    """ Reset password and send email. """
+
+    traveller_verification = utils.gen_verification_code() if not IS_TEST else '123456'
+
+    if not IS_TEST:
+        traveller_verification = utils.gen_verification_code()
+        loop.create_task(send_email(traveller_email, email_title.format('password change request code'),
+                                    [f"{email_content_code.format('password change request')}{traveller_verification}"]))
+
+    else:
+        traveller_verification = '123456'
+
+    password_change_request_codes[target_acc.traveller_id] = [traveller_verification, new_traveller_password]
+
+    return format_res(event)
+
+@no_account
+def reset_traveller_password_final(event: str, traveller_email: str, traveller_password_code: str):
+    """ Email checks. """
+    traveller_email_error = utils.check_email(traveller_email)
+
+    if traveller_email_error:
+        return format_res_err(event, traveller_email_error[0], traveller_email_error[1])
+
+    """ Reset password and send email. """
+    if not len(traveller_password_code) == VERIFICATION_CODE_LENGTH:
+        return format_res_err(event, 'CodeExceedsLimit', f'The verification code must consist of exactly {VERIFICATION_CODE_LENGTH} characters.')
+
+    target_acc = get_user_by_email(traveller_email)
+
+    if not target_acc:
+        return format_res_err(event, 'NotFound', f'The Traveller with email {traveller_email} could not be found.')
+
+    if not target_acc.traveller_id in password_change_request_codes:
+        return format_res_err(event, 'NoCode', 'No password change code has been requested.')
+
+    if not password_change_request_codes[target_acc.traveller_id][0] == traveller_password_code:
+        return format_res_err(event, 'InvalidCode', 'The provided code is invalid.')
+
+    new_hashed_password = hashpw(bytes(password_change_request_codes[target_acc.traveller_id][1], 'ascii'), gensalt(rounds=13))
+
+    if IS_LOCAL:
+        travellers[target_acc.traveller_id].traveller_password = new_hashed_password
+    else:
+        update_user(target_acc.traveller_id, travellerPassword=new_hashed_password)
+
+    if not IS_TEST:
+        loop.create_task(send_email(target_acc.traveller_email, email_title.format('password changed'), [email_content_changed.format('password')]))
+
+    del password_change_request_codes[target_acc.traveller_id]
+
+    return format_res(event)
+
+""" Account only """
+
+@account
+def logout_traveller(event: str, wss: WebSocketClientProtocol):
+    """Unlinks an IP from its associated traveller account. 
+
+    Possible Responses:
+        logoutTravellerReply: The IP has been successfully unliked from its associated account.
+    """
+    del wss_accounts[wss.remote_address[0]]
+
+    return format_res(event)
+
+@account
+def fetch_travellers(event: str):
+    """Fetches every single traveller's ID.
+        
+    Possible Responses:
+        fetchTravellersReply: The existing travellers' IDs have been successfully fetched.
+    """
+    return format_res(event, travellerIds=[id for id in travellers] if IS_LOCAL else [id for id in get_users()])
+
+@account
+def fetch_traveller(event: str, traveller_id: str):
+    """Fetches a traveller's info, if he exists in the database.
+
+    Possible Responses:
+        fetchTravellerReply: Info about a traveller has been successfully fetched.
+
+        fetchTravellerNotFound: The traveller with the requested ID could not be found.
+    """
+    traveller = get_user(traveller_id)
+
+    if traveller:
+        return format_res(event, travellerName=traveller.traveller_name, travellerId=traveller_id)
+
+    return format_res_err(event, 'NotFound', f'Traveller with id {traveller_id} not found.')
+
+@account
+def total_travellers(event: str):
+    """Returns the number of created (only the verified ones) traveller accounts.
+        
+    Possible Responses:
+        totalTravellersReply: The number of existing travellers has been successfully fetched.
+    """
+    return format_res(event, totalTravellers=len(travellers) if IS_LOCAL else len(get_users()))
+
+@account
+def online_travellers(event: str):
+    """Returns the number of online (logged in) travellers and their IDs.
+    
+    Possible Responses:
+        onlineTravellersReply: The number of online travellers at the moment, with their IDs.
+    """
+
+    result_data = dict(onlineTravellers=len(wss_accounts))
+
+    if IS_LOCAL:
+        online_travellers_ids = [id for id in travellers if id in wss_accounts.values()]
+
+    else:
+        online_travellers_ids = [id for id in get_users() if id in wss_accounts.values()]
+
+    result_data['onlineTravellersIds'] = online_travellers_ids
+
+    return format_res(event, **result_data)
+
+@account
+def reset_traveller_password_account(event: str, old_traveller_password: str, new_traveller_password: str, account: Traveller):
+    """Resets a connected traveller's password.
+
+    Possible Responses:
+        resetTravellerPasswordAccountReply: The password has been changed successfully.
+
+        resetTravellerPasswordAccountPasswordExceedsLimit: The provided password exceeds current password length limitations.
+
+        resetTravellerPasswordAccountInvalidPassword: The given password doesn't match the original one.
+    """
+
+    """ Password checks. """
+    old_traveller_password, new_traveller_password = utils.remove_whitespace(old_traveller_password), utils.remove_whitespace(new_traveller_password)
+
+    old_traveller_password_checks, new_traveller_password_checks = utils.check_password(old_traveller_password), utils.check_password(new_traveller_password)
+
+    if old_traveller_password_checks:
+        return format_res_err(event, old_traveller_password_checks[0], old_traveller_password_checks[1])
+        
+    if new_traveller_password_checks:
+        return format_res_err(event, new_traveller_password_checks[0], new_traveller_password_checks[1])
+
+    if not checkpw(bytes(old_traveller_password, 'ascii'), account.traveller_password):
+        return format_res_err(event, 'InvalidPassword', 'The password is invalid.')
+
+    """ Reset password and send email. """
+    new_hashed_password = hashpw(bytes(new_traveller_password, 'ascii'), gensalt(rounds=13))
+
+    if IS_LOCAL:
+        travellers[account.traveller_id].traveller_password = new_hashed_password
+    else:
+        update_user(account.traveller_id, travellerPassword=new_hashed_password)
+
+    if not IS_TEST:
+        loop.create_task(send_email(account.traveller_email, email_title.format('password changed'), [email_content_changed.format('password')]))
+
+    return format_res(event)
+
+@account
+def reset_traveller_email(event: str, traveller_password: str, new_traveller_email: str, account: Traveller):
+    """Sends an email change request code to be used by resetTravellerEmailFinal.
+
+    Possible Responses:
+        resetTravellerEmailReply: An email change request code has been sent to the new email, call resetTravellerEmailFinal now.
+
+        resetTravellerEmailEmailExceedsLimit: The provided email exceeds the current name length limitations.
+        resetTravellerEmailEmailInvalidCharacters: The email of the account contains invalid characters.
+        resetTravellerEmailEmailInvalidFormat: The provided email is not formatted correctly. Possibly the domain name is omitted/invalid.
+        resetTravellerEmailEmailUnchanged: The original email is the same as the new one.
+        resetTravellerEmailEmailInUse: The new email is already in use.
+
+        resetTravellerEmailInvalidPassword: The given password doesn't match the original one.
+    """    
+
+    """ Email checks. """
+    new_traveller_email_error = utils.check_email(new_traveller_email)
+
+    if new_traveller_email_error:
+        return format_res_err(event, new_traveller_email_error[0], new_traveller_email_error[1])
+
+    if account.traveller_email == new_traveller_email:
+        return format_res_err(event, 'EmailUnchanged', 'The old email is the same as the new one.')
+
+    if get_user_by_email(new_traveller_email, True):
+        return format_res_err(event, 'EmailInUse', 'This email is already in use by another account.')
+
+    """ Password checks. """
+    traveller_password = utils.remove_whitespace(traveller_password)
+
+    traveller_password_checks = utils.check_password(traveller_password)
+
+    if traveller_password_checks:
+        return format_res_err(event, traveller_password_checks[0], traveller_password_checks[1])
+
+    if not checkpw(bytes(traveller_password, 'ascii'), account.traveller_password):
+        return format_res_err(event, 'InvalidPassword', 'The password is invalid.')
+
+    """ Send the email change request code. """
+    traveller_verification = utils.gen_verification_code() if not IS_TEST else '123456'
+
+    if not IS_TEST:
+        traveller_verification = utils.gen_verification_code()
+        loop.create_task(send_email(new_traveller_email, email_title.format('email change request code'),
+                                    [f"{email_content_code.format('email change request')}{traveller_verification}"]))
+
+    else:
+        traveller_verification = '123456'
+
+    email_change_request_codes[account.traveller_id] = [traveller_verification, new_traveller_email]
+
+    return format_res(event)
+
+@account
+def reset_traveller_email_final(event: str, traveller_email_code: str, account: Traveller):
+    """Called after resetTravellerEmail to perform the actual operation with the given code.
+
+    Possible Responses:
+        resetTravellerEmailFinalReply: The traveller's email has been successfully reset.
+
+        resetTravellerEmailNoCode: You haven't called resetTravellerEmail.
+        resetTravellerEmailFinalCodeExceedsLimit: The code's length is not VERIFICATION_CODE_LENGTH.
+        resetTravellerEmailFinalInvalidCode: The verification code is invalid.
+    """
+
+    """ Reset and send email. """
+    if account.traveller_id not in email_change_request_codes:
+        return format_res_err(event, 'NoCode', 'No email change code has been requested.')
+
+    if not len(traveller_email_code) == VERIFICATION_CODE_LENGTH:
+        return format_res_err(event, 'CodeExceedsLimit', f'The verification code must consist of exactly {VERIFICATION_CODE_LENGTH} characters.')
+
+    if not email_change_request_codes[account.traveller_id][0] == traveller_email_code:
+        return format_res_err(event, 'InvalidCode', 'The provided code is invalid.')
+        
+    old_traveller_email = account.traveller_email
+
+    if IS_LOCAL:
+        travellers[account.traveller_id].traveller_email = email_change_request_codes[account.traveller_id][1]
+    else:
+        update_user(account.traveller_id, travellerEmail=email_change_request_codes[account.traveller_id][1])
+
+    if not IS_TEST:
+        loop.create_task(send_email(old_traveller_email, email_title.format('email changed'), [email_content_changed.format('email')]))
+
+    del email_change_request_codes[account.traveller_id]
+
+    return format_res(event)
+
+@account
+def reset_traveller_name(event: str, traveller_password: str, new_traveller_name: str, account: Traveller):
+    """Changes a traveller's name, of it's not taken.
+
+    Possible Responses:
+        resetTravellerNameReply: The traveller's name has been changed successfully.
+
+        resetTravellerNameNameExceedsLimit: The provided name exceeds the current name length limitations.
+        resetTravellerNameNameInvalidCharacters: The name of the account contains invalid characters.
+        resetTravellerNameNameTaken: The new traveller's name is already used by another account.
+        resetTravellerNameNameAlreadyChanged: The traveller's name has already been changed once.
+
+        resetTravellerNamePasswordExceedsLimit: The provided password exceeds current password length limitations.
+
+        resetTravellerNameInvalidPassword: The given password doesn't match the original one.
+    """    
+    
+    """ Username checks. """
+    new_traveller_name = new_traveller_name.strip()
+
+    if not utils.check_length(new_traveller_name, MIN_USERNAME_LENGTH, MAX_USERNAME_LENGTH):
+        return format_res_err(event, 'NameExceedsLimit', length_invalid.format('New traveller name', MIN_USERNAME_LENGTH, MAX_USERNAME_LENGTH))
+
+    if not utils.check_chars(new_traveller_name, USERNAME_CHARACTERS):
+        return format_res_err(event, 'NameInvalidCharacters', chars_invalid.format('The new traveller name'))
+
+    """ Password checks. """
+    traveller_password = utils.remove_whitespace(traveller_password)
+
+    traveller_password_checks = utils.check_password(traveller_password)
+
+    if traveller_password_checks:
+        return format_res_err(event, traveller_password_checks[0], traveller_password_checks[1])
+
+    if not checkpw(bytes(traveller_password, 'ascii'), account.traveller_password):
+        return format_res_err(event, 'InvalidPassword', 'The password is invalid.')
+
+    """ Reset name and send email. """
+    if is_username_taken(new_traveller_name):
+        return format_res_err(event, 'NameTaken', 'Another traveller is already using this username.')
+
+    has_changed_name = False
+
+    if IS_LOCAL:
+        has_changed_name = travellers[account.traveller_id].has_changed_name
+
+    else:
+        has_changed_name = get_users(True)[account.traveller_id]['hasChangedName']
+
+    if has_changed_name:
+        return format_res_err(event, 'NameAlreadyChanged', 'The traveller\'s name has already been changed once.')
+
+    if IS_LOCAL:
+        travellers[account.traveller_id].traveller_name = new_traveller_name
+        travellers[account.traveller_id].has_changed_name = True
+    
+    else:
+        update_user(account.traveller_id, travellerName=new_traveller_name, hasChangedName=True)
+
+    if not IS_TEST:
+        loop.create_task(send_email(account.traveller_email, email_title.format('username changed'), [f"{email_content_changed.format('username')}"]))
+
+    return format_res(event)
+
 """ Tasks """
 
-async def task_cleanup_ip_ratelimits() -> None:
+@task
+async def cleanup_ip_ratelimits() -> None:
     """ SETS every key found in the ip_requests dictionary to 0. """
 
     while True:
@@ -837,21 +1247,24 @@ async def task_cleanup_ip_ratelimits() -> None:
 
         await asyncio.sleep(IP_RATELIMIT_CLEANUP_INTERVAL)
 
-async def task_cleanup_ip_requests() -> None:
+@task
+async def cleanup_ip_requests() -> None:
     """ CLEARS every key found in the ip_requests dictionary. """
 
     while True:
         ip_requests.clear()
         await asyncio.sleep(IP_REQUESTS_CLEANUP_INTERVAL)
 
-async def task_cleanup_account_links() -> None:
+@task
+async def cleanup_account_links() -> None:
     """ CLEARS the linked IPs and accounts dictionary. """
 
     while True:
         wss_accounts.clear()
         await asyncio.sleep(IP_ACCOUNT_CLEANUP_INTERVAL)
 
-async def task_cleanup_temp_accounts() -> None:
+@task
+async def cleanup_temp_accounts() -> None:
     """ DELETES accounts which have not been verified. """
     
     while True:
@@ -886,18 +1299,14 @@ if __name__ == '__main__':
             else:
                 setup_mongo(environ['TOWERVERSE_MONGODB_USERNAME'], environ['TOWERVERSE_MONGODB_PASSWORD'])
 
-    """ Heroku expects us to bind on a specific port, if deployed locally we can bind anywhere. """
     port = environ.get('PORT', 5000)
 
     start_server = ws_serve(serve, '0.0.0.0', port)
 
-    """ Dynamically find and start server tasks. """
-    registered_tasks = [task for task_name, task in globals().items() if task_name.startswith('task_')]
-
-    for task in registered_tasks:
+    for task in tasks_list.values():
         loop.create_task(task())
 
-    if len(registered_tasks) > 0:
+    if len(tasks_list) > 0:
         log.info('Tasks started.')
 
     try:
@@ -910,7 +1319,6 @@ if __name__ == '__main__':
     except gaierror:
         log.info(f'Server running at port: {port}')
 
-    """ Start the infinite server loop. """
     try:
         loop.run_forever()
     except KeyboardInterrupt:

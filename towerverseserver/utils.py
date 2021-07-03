@@ -24,6 +24,11 @@ from string import ascii_letters, ascii_uppercase, digits, whitespace
 """ Logging. """
 from logging import getLogger
 
+""" 3RD-PARTY MODULES """
+
+""" Validating emails. """
+from email_validator import EmailNotValidError, validate_email
+
 """ LOCAL MODULES """
 
 from towerverseserver.constants import *
@@ -35,12 +40,11 @@ log = getLogger(LOGGER_NAME)
 
 """ Utilities """
 
-def transform_to_call(target: str, is_argument: bool = False) -> str:
+def transform_to_call(target: str) -> str:
     """Transforms a python string to a function/argument name.
 
     Args:
         target (str): The target string.
-        is_argument (bool): Whether or not it's going to be passed as an argument. Defaults to False.
 
     Returns:
         str: The formatted string.
@@ -52,9 +56,7 @@ def transform_to_call(target: str, is_argument: bool = False) -> str:
             target_list[index] = letter.lower()
             target_list.insert(index, '_')
 
-    result = ''.join([letter for letter in target_list])
-
-    return f"event_{result}" if not is_argument else result
+    return ''.join([letter for letter in target_list])
 
 def transform_to_original(target: str) -> str:
     """Transforms a previously-modified-by-transform_to_call argument to its original state.
@@ -95,10 +97,8 @@ def check_loop_data(data: dict, keys: List[str]) -> str:
             if len(data[key].strip()) == 0:
                 return f'{transform_to_original(key)} value mustn\'t be empty.'
         except AttributeError:
-            """ WebSocketServerProtocol probably, passed by default in functions which ask for it. """
             continue
 
-    """ Much better visualization by showing them all at once. """
     if keys_needed:
         result_response = 'Data must contain '
 
@@ -117,7 +117,6 @@ def check_loop_data(data: dict, keys: List[str]) -> str:
             result_response += result_to_append
 
         return result_response
-    return None
 
 def gen_id() -> str:
     """Generates an ID with 15 digits for use when creating an account.
@@ -154,7 +153,7 @@ def log_error(print_msg: str, exc: Exception) -> None:
         exc (Exception): The exception to log below the print_msg.
     """
     if isinstance(exc, Exception):
-        log.error(f'{print_msg}: \n{exc.__class__.__name__}{exc}')
+        log.error(f'{print_msg}: \n{exc.__class__.__name__}: {exc}')
     else:
         log.warn('Invalid exception passed to print_error, aborting operation.')
 
@@ -171,38 +170,84 @@ def log_error_and_exit(exit_msg: str, exc: Exception) -> None:
     else:
         log.warn('Invalid exception passed to print_error_and_exit, aborting operation.')
 
-def format_password(password: str) -> str:
-    """Formats a provided password for checking later on with check_password.
-
-    Args:
-        password (str): The target password.
-
-    Returns:
-        str: The formatted password.
-    """
-
-    """ Get the version without spaces L/R. """
-    password = password.strip()
-
-    """ Remove extra whitespace. """
-    temp_password = ''
-
-    for letter in password:
-        if letter not in whitespace:
-            temp_password += letter
-
-    password = temp_password
-
-    return password
-
 def check_password(password: str) -> list:
-    """Tests a password with multiple cases. Should be used in combination with format_password.
+    """Tests a password with multiple cases. Should be used in combination with remove_whitespace.
 
     Args:
         password (str): The target password.
 
     Returns:
-        list: The error, if one occured where: [0] the name of the error and [1] the description of the error.
+        list: The error, if one occured, where: [0] the name of the error and [1] the description of the error.
     """
-    if not len(password) >= MIN_PASS_LENGTH or not len(password) <= MAX_PASS_LENGTH:
+    if not check_length(password, MIN_PASS_LENGTH, MAX_PASS_LENGTH):
         return ['PasswordExceedsLimit', f'Traveller password must be between {MIN_PASS_LENGTH} and {MAX_PASS_LENGTH} characters long.']
+
+def verify_email(email: str) -> EmailNotValidError:
+    """Checks if an email has a valid format.
+
+    Args:
+        email (str): The target email.
+
+    Returns:
+        EmailNotValidError: The error, if any, which is thrown by email_validator.
+    """
+    try:
+        validate_email(email)
+    except EmailNotValidError as e:
+        return e
+
+def check_email(email: str) -> EmailNotValidError:
+    """Tests an email with multiple cases. Should be used in combination with verify_email.
+
+    Args:
+        email (str): The target email.
+
+    Returns:
+        list: The error, if one occured, where: [0] the name of the error and [1] the description of the error.
+    """
+    if not check_length(email, MIN_EMAIL_LENGTH, MAX_EMAIL_LENGTH):
+        return ['EmailExceedsLimit', length_invalid.format('Email', MIN_EMAIL_LENGTH, MAX_EMAIL_LENGTH)]
+
+    if not check_chars(email, EMAIL_CHARACTERS):
+        return ['EmailInvalidCharacters', chars_invalid.format('Email')]
+
+    email_error = verify_email(email)
+
+    if email_error:
+        return ['EmailInvalidFormat', str(email_error)]
+
+def remove_whitespace(target: str) -> str:
+    """Removes whitespace from a string.
+
+    Args:
+        target (str): The target string.
+
+    Returns:
+        str: The target string, formatted
+    """
+    return ''.join([letter for letter in target if letter not in whitespace])
+    
+def check_chars(target: str, target_chars: str) -> bool:
+    """Checks if the target string only contains target characters.
+
+    Args:
+        target (str): The target string.
+        target_chars (str): The target characters.
+
+    Returns:
+        bool: Whether or not it contains unknown characters.
+    """
+    return len([letter for letter in target if letter not in target_chars]) == 0
+
+def check_length(target: str, min: int, max: int) -> bool:
+    """Checks if the target string's length is appropriate.
+
+    Args:
+        target (str): The target string.
+        min (int): The minimum length.
+        max (int): The maximum length.
+
+    Returns:
+        bool: Whether or not it comes between the two limits.
+    """
+    return len(target) >= min and len(target) <= max

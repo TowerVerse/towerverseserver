@@ -1,4 +1,4 @@
-# TowerVerseServer
+# <p align="center">**TowerVerseServer**</p>
 ![GitHub](https://img.shields.io/github/license/TowerVerse/towerverseserver) ![GitHub Repo stars](https://img.shields.io/github/stars/TowerVerse/towerverseserver?style=social) ![GitHub forks](https://img.shields.io/github/forks/TowerVerse/towerverseserver?style=social) ![GitHub commit activity](https://img.shields.io/github/commit-activity/m/TowerVerse/towerverseserver) ![Lines of code](https://img.shields.io/tokei/lines/github/TowerVerse/towerverseserver?branch=master)
 ![GitHub issues](https://img.shields.io/github/issues/TowerVerse/towerverseserver) ![GitHub Sponsors](https://img.shields.io/github/sponsors/TowerVerse)
 
@@ -44,7 +44,7 @@
 
 - **```python3 towerverseserver/server.py --local```**
 
-- **(In another terminal) ```python3 -m websockets ws://localhost:5000``` and try JSON requests such as: ```{"event": "totalTravellers"}```**
+- **(In another terminal) ```python3 -m websockets ws://localhost:5000``` and try JSON requests such as: ```{"event": "createTraveller"}```**
 
 **The server will run on a designated port (5000 by default) at localhost.**
 
@@ -53,3 +53,5 @@
 ## Hosting online
 
 **The *PORT* environmental variable can be set to inform that the server be attached to a specific one.**
+
+**Remember to run the server file without any argument such as --local or --test so as to make use of the database and prevent any errors.**

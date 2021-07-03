@@ -35,9 +35,9 @@ IP_ACCOUNT_CLEANUP_INTERVAL = 60 * 60 * 24 # every day
 TEMP_ACCOUNT_CLEANUP_INTERVAL = 60 * 60 * 24 * 7 # every week
 
 """ Account-related. """
-ACCOUNT_CHARACTERS = f'{ascii_letters}{digits}!^* '
-MIN_ACCOUNT_LENGTH = 3
-MAX_ACCOUNT_LENGTH = 20
+USERNAME_CHARACTERS = f'{ascii_letters}{digits}!^*'
+MIN_USERNAME_LENGTH = 3
+MAX_USERNAME_LENGTH = 20
 
 EMAIL_CHARACTERS = f'{ascii_letters}{digits}@.'
 MIN_EMAIL_LENGTH = 10
@@ -55,3 +55,12 @@ LOGGER_NAME = 'towerverse-server'
 mongo_project_name = 'towerverse.kx1he'
 mongo_database_name = 'towerverse-db'
 mongo_client_extra_args = 'retryWrites=true&w=majority'
+
+""" String templates. """
+length_invalid = '{} should consist of {} to {} characters.'
+chars_invalid = '{} contains invalid characters.'
+email_title = 'TowerVerse {}'
+email_content_code = 'This is your TowerVerse {} code: '
+email_content_changed = 'Your Towerverse {} has been changed successfully.'
+strf_format = '%d/%m/%Y %H:%M'
+wrapper_alr_exists = 'The {} named "{}" already exists, aborting operation.'

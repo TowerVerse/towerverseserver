@@ -25,11 +25,12 @@ import pytest
 
 
 @pytest.mark.asyncio
-@pytest.mark.run(order=2)
+@pytest.mark.run(order=3)
 async def test_verify_traveller_response():
     async with connect('ws://localhost:5000') as wss:
 
-        await wss.send(dumps({'event': 'verifyTraveller', 'travellerId': '123', 'travellerCode': '123456'}))
+        await wss.send(dumps({'event': 'verifyTraveller', 'travellerEmail': 'someemailwhichdoesntexist@gmail.com',
+                            'travellerCode': '123456'}))
 
         response = loads(await wss.recv())
 

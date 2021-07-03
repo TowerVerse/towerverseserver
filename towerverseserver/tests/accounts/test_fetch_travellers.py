@@ -25,7 +25,7 @@ import pytest
 
 
 @pytest.mark.asyncio
-@pytest.mark.run(order=5)
+@pytest.mark.run(order=6)
 async def test_fetch_travellers_response():
     async with connect('ws://localhost:5000') as wss:
 

@@ -25,7 +25,7 @@ import pytest
 
 
 @pytest.mark.asyncio
-@pytest.mark.run(order=4)
+@pytest.mark.run(order=5)
 async def test_online_travellers_response():
     async with connect('ws://localhost:5000') as wss:
 
@@ -33,4 +33,4 @@ async def test_online_travellers_response():
 
         response = loads(await wss.recv())
 
-        assert isinstance(response, dict) and response['event'] == 'onlineTravellersReply' and response['data']['onlineTravellers'] == 1
+        assert isinstance(response, dict) and response['event'] == 'onlineTravellersReply' and response['data']['onlineTravellers'] == 1 and '123' in response['data']['onlineTravellersIds']

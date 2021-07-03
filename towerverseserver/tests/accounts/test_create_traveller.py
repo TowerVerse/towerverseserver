@@ -29,7 +29,7 @@ import pytest
 async def test_create_traveller_response():
     async with connect('ws://localhost:5000') as wss:
 
-        await wss.send(dumps({'event': 'createTraveller', 'travellerName': 'this is a test', 
+        await wss.send(dumps({'event': 'createTraveller', 'travellerName': 'thisisatest', 
                             'travellerEmail': 'someemailwhichdoesntexist@gmail.com', 'travellerPassword': 'testpassword123'}))
 
         response = loads(await wss.recv())
