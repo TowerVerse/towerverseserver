@@ -2,17 +2,15 @@
 ![GitHub](https://img.shields.io/github/license/TowerVerse/towerverseserver) ![GitHub Repo stars](https://img.shields.io/github/stars/TowerVerse/towerverseserver?style=social) ![GitHub forks](https://img.shields.io/github/forks/TowerVerse/towerverseserver?style=social) ![GitHub commit activity](https://img.shields.io/github/commit-activity/m/TowerVerse/towerverseserver) ![Lines of code](https://img.shields.io/tokei/lines/github/TowerVerse/towerverseserver?branch=master)
 ![GitHub issues](https://img.shields.io/github/issues/TowerVerse/towerverseserver) ![GitHub Sponsors](https://img.shields.io/github/sponsors/TowerVerse)
 
-## Branch statuses
+## Branch badges
 
 ### Master: ![CircleCI](https://circleci.com/gh/TowerVerse/towerverseserver.svg?branch=master&style=shield)
-
-### Beta: ![CircleCI](https://circleci.com/gh/TowerVerse/towerverseserver.svg?branch=beta&style=shield)
 
 ## What's this?
 
 **This repository includes the source code of the current server of TowerVerse.**
 
-**The servers are available at: [master version](https://towerverse.herokuapp.com) or [beta version](https://towerverse-beta.herokuapp.com).**
+**The server is available [here](https://towerverse.herokuapp.com)**.
 
 **The purpose of this is for experimentation purposes and development of similar rest APIs in python.**
 
@@ -39,8 +37,6 @@
 ## Hosting locally
 
 - **```cd {fork directory root}```**
-
-- **(Optional) Type ```git switch beta``` to use the latest server features which may or may not be stable.**
 
 - **```python3 towerverseserver/server.py --local```**
 
