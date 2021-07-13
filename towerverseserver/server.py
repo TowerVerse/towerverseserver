@@ -498,18 +498,6 @@ async def serve(wss: WebSocketClientProtocol, path: str) -> None:
 
             result = ''
 
-            try:
-                if ip_requests[wss.remote_address[0]] > IP_RATELIMIT_MAX:
-
-                    await wss.send(format_res_err('', 'RatelimitError', 'You are ratelimited.', True, True))
-                    continue
-
-            except KeyError:
-                ip_requests[wss.remote_address[0]] = 0
-
-            if not IS_TEST:
-                ip_requests[wss.remote_address[0]] += 1
-
             if len(response.strip()) == 0:
                 continue
 
@@ -525,6 +513,7 @@ async def serve(wss: WebSocketClientProtocol, path: str) -> None:
             except (JSONDecodeError, AssertionError):
                 result = format_res_err('', 'JSONFormatError', 'The request contains invalid JSON.', True, True)
 
+                
             if result:
                 await wss.send(result)
                 continue
@@ -534,6 +523,18 @@ async def serve(wss: WebSocketClientProtocol, path: str) -> None:
             if 'ref' in data:
                 current_ref = data['ref']
 
+            try:
+                if ip_requests[wss.remote_address[0]] > IP_RATELIMIT_MAX:
+
+                    await wss.send(format_res_err(data['event'], 'RatelimitError', 'You are ratelimited.', True))
+                    continue
+
+            except KeyError:
+                ip_requests[wss.remote_address[0]] = 0
+
+            if not IS_TEST:
+                ip_requests[wss.remote_address[0]] += 1
+                
             if not result:
                 result = await request_switcher(wss, data)
 

@@ -19,14 +19,14 @@ from string import ascii_letters, digits
 
 """ ONLY USED FOR THE LOCAL VERSION """
 
-""" Max requests until IP ratelimits are cleared. """
-IP_RATELIMIT_MAX = 10
+""" Max requests until the IP is ratelimited. """
+IP_RATELIMIT_MAX = 200
 
-""" Seconds between resetting IP ratelimits. """
-IP_RATELIMIT_CLEANUP_INTERVAL = 5
+""" Seconds between resetting every IP's ratelimit requests to 0. """
+IP_RATELIMIT_CLEANUP_INTERVAL = 60 # every minute
 
-""" Seconds between resetting IP requests. """
-IP_REQUESTS_CLEANUP_INTERVAL = 60 * 60 # every minute
+""" Seconds between emptying the IP requests dictionary. """
+IP_REQUESTS_CLEANUP_INTERVAL = 60 * 60 # every hour
 
 """ Seconds between resetting IP account links. """
 IP_ACCOUNT_CLEANUP_INTERVAL = 60 * 60 * 24 # every day
