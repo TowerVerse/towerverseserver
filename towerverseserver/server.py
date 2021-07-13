@@ -26,11 +26,20 @@ from time import gmtime, time
 
 imports_start_time = time()
 
-""" BUILT-IN MODULES """
-import asyncio
-
 """ Command-line options. """
 from argparse import ArgumentParser
+
+""" Setup optional command-line arguments. """
+parser = ArgumentParser(description='The main file of the server of TowerVerse.')
+
+parser.add_argument('--local', help='This option should be passed whenever the server is developed locally. With this option, the server makes use of runtime variables rather than MongoDB. Small reminder that this option still requires that email environmental variables be set.', action='store_true')
+parser.add_argument('--test', help='This option disables removing IP account links between disconnects to facilitate pytest. Most of the time, it shouldn\'t be used for anything else. This option must be used with --local.', action='store_true')
+parser.add_argument('--log', help='Specifies the level of logging where: 10 Verbose 20 Info 30 Warning 40 Error 50 Silent. Defaults to 10.', type=int, default=10, choices=[10, 20, 30, 40, 50])
+
+parser_args = parser.parse_args()
+
+""" BUILT-IN MODULES """
+import asyncio
 
 """ For hosting. """
 from os import environ
@@ -70,28 +79,21 @@ from websockets.legacy.server import WebSocketServerProtocol
 from bcrypt import checkpw, gensalt, hashpw
 
 """ MongoDB-related. """
-from bson.objectid import ObjectId
-from pymongo import MongoClient
-from pymongo.database import Database
-from pymongo.errors import ConfigurationError, OperationFailure
+if not parser_args.test:
+    from bson.objectid import ObjectId
+    from pymongo import MongoClient
+    from pymongo.database import Database
+    from pymongo.errors import ConfigurationError, OperationFailure
 
 """ Email verification and more. """
-from aioyagmail import SMTP
+if not parser_args.test:
+    from aioyagmail import SMTP
 
 """ LOCAL MODULES """
 
 import towerverseserver.utils as utils
 from towerverseserver.classes import *
 from towerverseserver.constants import *
-
-""" Setup optional command-line arguments. """
-parser = ArgumentParser(description='The main file of the server of TowerVerse.')
-
-parser.add_argument('--local', help='This option should be passed whenever the server is developed locally. With this option, the server makes use of runtime variables rather than MongoDB. Small reminder that this option still requires that email environmental variables be set.', action='store_true')
-parser.add_argument('--test', help='This option disables removing IP account links between disconnects to facilitate pytest. Most of the time, it shouldn\'t be used for anything else. This option must be used with --local.', action='store_true')
-parser.add_argument('--log', help='Specifies the level of logging where: 10 Verbose 20 Info 30 Warning 40 Error 50 Silent. Defaults to 10.', type=int, default=10, choices=[10, 20, 30, 40, 50])
-
-parser_args = parser.parse_args()
 
 logHandler = StreamHandler()
 
@@ -143,14 +145,16 @@ IS_LOCAL = parser_args.local
 IS_TEST = parser_args.test
 
 """ MongoDB-related, filled in at setup_mongo. """
-mdbclient: MongoClient = None
-mdb: Database = None
+if not parser_args.test:
+    mdbclient: MongoClient = None
+    mdb: Database = None
 
 """ Passed reference to facilitate wrapper-fetching. """
 current_ref: str = None
 
 """ Email-related, filled in at setup_email. """
-email_smtp: SMTP = None
+if not parser_args.test:
+    email_smtp: SMTP = None
 
 """ Account-only events. These are only used if the requestee is logged in to an account, otherwise an error is thrown. Filled in with the account_only decorator. """
 account_events: Dict[str, Callable] = {}
@@ -494,18 +498,6 @@ async def serve(wss: WebSocketClientProtocol, path: str) -> None:
 
             result = ''
 
-            try:
-                if ip_requests[wss.remote_address[0]] > IP_RATELIMIT_MAX:
-
-                    await wss.send(format_res_err('', 'RatelimitError', 'You are ratelimited.', True, True))
-                    continue
-
-            except KeyError:
-                ip_requests[wss.remote_address[0]] = 0
-
-            if not IS_TEST:
-                ip_requests[wss.remote_address[0]] += 1
-
             if len(response.strip()) == 0:
                 continue
 
@@ -521,6 +513,7 @@ async def serve(wss: WebSocketClientProtocol, path: str) -> None:
             except (JSONDecodeError, AssertionError):
                 result = format_res_err('', 'JSONFormatError', 'The request contains invalid JSON.', True, True)
 
+                
             if result:
                 await wss.send(result)
                 continue
@@ -530,6 +523,18 @@ async def serve(wss: WebSocketClientProtocol, path: str) -> None:
             if 'ref' in data:
                 current_ref = data['ref']
 
+            try:
+                if ip_requests[wss.remote_address[0]] > IP_RATELIMIT_MAX:
+
+                    await wss.send(format_res_err(data['event'], 'RatelimitError', 'You are ratelimited.', True))
+                    continue
+
+            except KeyError:
+                ip_requests[wss.remote_address[0]] = 0
+
+            if not IS_TEST:
+                ip_requests[wss.remote_address[0]] += 1
+                
             if not result:
                 result = await request_switcher(wss, data)
 
