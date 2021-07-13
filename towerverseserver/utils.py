@@ -180,7 +180,10 @@ def check_password(password: str) -> list:
         list: The error, if one occured, where: [0] the name of the error and [1] the description of the error.
     """
     if not check_length(password, MIN_PASS_LENGTH, MAX_PASS_LENGTH):
-        return ['PasswordExceedsLimit', f'Traveller password must be between {MIN_PASS_LENGTH} and {MAX_PASS_LENGTH} characters long.']
+        return ['PasswordExceedsLimit', length_invalid.format('Password', MIN_EMAIL_LENGTH, MAX_EMAIL_LENGTH)]
+
+    if not check_chars(password, PASSWORD_CHARACTERS):
+        return ['PasswordInvalidCharacters', chars_invalid.format('Password')]
 
 def verify_email(email: str) -> EmailNotValidError:
     """Checks if an email has a valid format.

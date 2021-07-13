@@ -699,6 +699,7 @@ def create_traveller(event: str, traveller_name: str, traveller_email: str, trav
         createTravellerEmailInUse: The provided email is already in use.
 
         createTravellerPasswordExceedsLimit: The provided password exceeds the current password length limitations.
+        createTravellerPasswordInvalidCharacters: The password of the account contains invalid characters.
     """
 
     """ Username checks. """
@@ -759,6 +760,7 @@ def login_traveller(event: str, traveller_email: str, traveller_password: str, w
         loginTravellerEmailInvalidFormat: The provided email is not formatted correctly. Possibly the domain name is omitted/invalid.
 
         loginTravellerPasswordExceedsLimit: The provided password exceeds current password length limitations.
+        loginTravellerPasswordInvalidCharacters: The password of the account contains invalid characters.
 
         loginTravellerNotFound: The traveller with the requested ID could not be found.
         loginTravellerAccountTaken: The target account is already taken by another IP.
@@ -889,13 +891,14 @@ def reset_traveller_password(event: str, traveller_email: str, old_traveller_pas
     """Resets a not-connected traveller's password.
 
     Possible Responses:
-        resetTravellerPasswordReply: The password has been changed successfully.
+        resetTravellerPasswordReply: A password change request code has been sent to the new email, call resetTravellerPasswordFinal now.
 
         resetTravellerPasswordEmailExceedsLimit: The provided email exceeds the current name length limitations.
-        resetTravellerPasswordInvalidCharacters: The email of the account contains invalid characters.
+        resetTravellerPasswordEmailInvalidCharacters: The email of the account contains invalid characters.
         resetTravellerPasswordEmailInvalidFormat: The provided email is not formatted correctly. Possibly the domain name is omitted/invalid.
 
         resetTravellerPasswordPasswordExceedsLimit: The provided password exceeds current password length limitations.
+        resetTravellerPasswordPasswordInvalidCharacters: The password of the account contains invalid characters.
 
         resetTravellerPasswordInvalidPassword: The given password doesn't match the original one.
     """
@@ -945,6 +948,20 @@ def reset_traveller_password(event: str, traveller_email: str, old_traveller_pas
 
 @no_account
 def reset_traveller_password_final(event: str, traveller_email: str, traveller_password_code: str):
+    """Called after resetTravellerPassword to perform the actual operation with the given code.
+
+    Possible Responses:
+        resetTravellerPasswordFinalReply: The traveller's password has been successfully reset.
+        
+        resetTravellerPasswordFinalEmailExceedsLimit: The provided email exceeds the current name length limitations.
+        resetTravellerPasswordFinalEmailInvalidCharacters: The email of the account contains invalid characters.
+        resetTravellerPasswordFInalEmailInvalidFormat: The provided email is not formatted correctly. Possibly the domain name is omitted/invalid.
+        
+        resetTravellerPasswordFinalNoCode: You haven't called resetTravellerPassword.
+        resetTravellerPasswordFinalCodeExceedsLimit: The code's length is not VERIFICATION_CODE_LENGTH.
+        resetTravellerPasswordFinalInvalidCode: The verification code is invalid.
+    """    
+    
     """ Email checks. """
     traveller_email_error = utils.check_email(traveller_email)
 
@@ -1055,6 +1072,7 @@ def reset_traveller_password_account(event: str, old_traveller_password: str, ne
         resetTravellerPasswordAccountReply: The password has been changed successfully.
 
         resetTravellerPasswordAccountPasswordExceedsLimit: The provided password exceeds current password length limitations.
+        resetTravellerPasswordAccountPasswordInvalidCharacters: The password of the account contains invalid characters.
 
         resetTravellerPasswordAccountInvalidPassword: The given password doesn't match the original one.
     """
@@ -1147,7 +1165,7 @@ def reset_traveller_email_final(event: str, traveller_email_code: str, account: 
     Possible Responses:
         resetTravellerEmailFinalReply: The traveller's email has been successfully reset.
 
-        resetTravellerEmailNoCode: You haven't called resetTravellerEmail.
+        resetTravellerEmailFinalNoCode: You haven't called resetTravellerEmail.
         resetTravellerEmailFinalCodeExceedsLimit: The code's length is not VERIFICATION_CODE_LENGTH.
         resetTravellerEmailFinalInvalidCode: The verification code is invalid.
     """
@@ -1189,6 +1207,7 @@ def reset_traveller_name(event: str, traveller_password: str, new_traveller_name
         resetTravellerNameNameAlreadyChanged: The traveller's name has already been changed once.
 
         resetTravellerNamePasswordExceedsLimit: The provided password exceeds current password length limitations.
+        resetTravellerNamePasswordInvalidCharacters: The password of the account contains invalid characters.
 
         resetTravellerNameInvalidPassword: The given password doesn't match the original one.
     """    
