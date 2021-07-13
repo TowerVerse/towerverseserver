@@ -43,6 +43,7 @@ EMAIL_CHARACTERS = f'{ascii_letters}{digits}@.'
 MIN_EMAIL_LENGTH = 10
 MAX_EMAIL_LENGTH = 60
 
+PASSWORD_CHARACTERS = ascii_letters + digits + '`~!@#$%^&*()-_=+[{]}\|;:\'",<.>/?'
 MIN_PASS_LENGTH = 10
 MAX_PASS_LENGTH = 50
 
