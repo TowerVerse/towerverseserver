@@ -123,7 +123,10 @@ ip_requests: Dict[str, int] = {}
 """ The registered accounts. """
 travellers: Dict[str, Traveller] = {}
 
-""" The registered towers/rooms. """
+""" The created guilds. """
+guilds: Dict[str, Guild] = {}
+
+""" The created towers. """
 towers: Dict[str, Tower] = {}
 
 """ Accounts linked to IPs. """
@@ -162,8 +165,14 @@ account_events: Dict[str, Callable] = {}
 """ No-account-events. These are only used if the requestee is NOT logged in to an account, otherwise an error is thrown. Filled in with the no_account_only decorator. """
 no_account_events: Dict[str, Callable] = {}
 
+""" Guild-only. These are only used if the requestee is part of a guild otherwise an error is thrown. Filled in with the guild_only decorator. """
+guild_events: Dict[str, Callable] = {}
+
+""" No-guild-only. These are only used if the requestee is NOT part of a guild otherwise an error is thrown. Filled in with the guild_only decorator. """
+no_guild_events: Dict[str, Callable] = {}
+
 """ List of all decorators, checked by request_switcher. """
-decorators_list: Set[str] = set({'account', 'no_account'})
+decorators_list: Set[str] = set({'account', 'no_account', 'guild', 'no_guild'})
 
 """ List of all tasks to run. """
 tasks_list: Dict[str, Callable] = {}
@@ -228,7 +237,7 @@ def get_users(pure: bool = False) -> Dict[str, Traveller]:
     """Returns the users which are created. Only for the database version. 
 
     Args:
-        pure (bool): Whether or not a Traveller should be returned otherwise the raw data will be.
+        pure (bool): Whether or not Traveller objects should be returned otherwise the raw data will be.
 
     Returns:
         Dict[str, Traveller]: The users dictionary.
@@ -244,7 +253,8 @@ def get_users(pure: bool = False) -> Dict[str, Traveller]:
 
         if not pure:
             result_users[user_id] = Traveller(user_id, user_dict['travellerName'], user_dict['travellerEmail'],
-                                            user_dict['travellerPassword'], user_dict['hasChangedName'])
+                                            user_dict['travellerPassword'], user_dict['hasChangedName'], user_dict['isInGuild'],
+                                            user_dict['guildId'])
         else:
             user_dict.update({'mongoId': mongo_id})
             result_users[user_id] = user_dict
@@ -268,10 +278,10 @@ def get_user(traveller_id: str, check_in_extra: bool = False) -> Traveller:
             traveller = travellers[traveller_id]
 
     else:
-        users = get_users()
+        temp_users = get_users()
 
-        if traveller_id in users:
-            traveller = users[traveller_id]
+        if traveller_id in temp_users:
+            traveller = temp_users[traveller_id]
 
     if check_in_extra:
         if traveller_id in accounts_to_create:
@@ -307,7 +317,7 @@ def get_user_by_email(traveller_email: str, check_in_extra: bool = False) -> Tra
 
     return traveller
 
-def update_user(user_id: int, **kwargs) -> Traveller:
+def update_user(user_id: str, **kwargs) -> Traveller:
     """Updates a user's db keys, according to what is passed. If the key doesn't exist, it is created otherwise it's updated. 
     
     Args:
@@ -387,6 +397,107 @@ def is_username_taken(traveller_name: str) -> bool:
 
     return is_name_taken
 
+def get_guilds(pure: bool = False) -> Dict[str, Guild]:
+    """Returns created guilds. Only for the database version.
+
+    Args:
+        pure (bool): Whether or not Guild objects should be returned otherwise the raw data will be.
+
+    Returns:
+        Dict[str, Guild]: The guilds dictionary.
+    """
+    result_guilds: Dict[str, Guild] = {}
+    
+    for cursor in mdb.guilds.find({}):
+        guild_dict = list(cursor.values())[1]
+        guild_id = list(cursor.keys())[1]
+
+        mongo_id = str(cursor['_id']).split('\'')[0]
+
+        if not pure:
+            result_guilds[guild_id] = Guild(guild_id, guild_dict['guildName'], guild_dict['guildCreator'], 
+                                        guild_dict['guildVisibility'], guild_dict['guildMaxMembers'], guild_dict['guildMembers'])
+            
+        else:
+            guild_dict.update({'mongoId': mongo_id})
+            result_guilds[guild_id] = guild_dict
+
+    return result_guilds
+
+def get_guild(guild_id: str) -> Guild:
+    """Gets a guild by id.
+
+    Args:
+        guild_id (str): The guild id.
+        
+    Returns:
+        Guild: The Guild object, if the guild is found.
+    """    
+    guild: Guild = None
+
+    if IS_LOCAL:
+        if guild_id in guilds:
+            guild = guilds[guild_id]
+            
+    else:
+        temp_guilds = get_guilds()
+
+        if guild_id in temp_guilds:
+            guild = temp_guilds[guild_id]
+            
+    return guild
+
+def update_guild(guild_id: str, **kwargs) -> Guild:
+    """Updates a guild's db keys, according to what is passed. If the key doesn't exist, it is created otherwise it's updated. 
+    
+    Args:
+        guild_id (int): The guild's id.
+    
+    Returns:
+        Guild: The updated Guild instance.
+    """
+    guilds = get_guilds(True)
+
+    if not guild_id in guilds:
+        log.error('Invalid id has been passed to update_guild, aborting operation.')
+        return
+
+    guild = guilds[guild_id]
+
+    update_dict: Dict[str, str] = {'$set': {guild_id: {}}}
+
+    for key, value in kwargs.items():
+        update_dict['$set'][guild_id][key] = value
+
+    for key, value in guild.items():
+        if key not in kwargs.keys() and key != 'mongoId':
+            update_dict['$set'][guild_id][key] = value
+
+    mdb.guilds.find_one_and_update({'_id': ObjectId(guild['mongoId'])}, update_dict)
+
+    return get_user(guild_id)
+
+def get_guild_info(guild_id: str, event: str = '') -> dict:
+    """Returns guild info as a response, if the event argument is provided, otherwise as a plain dict.
+
+    Args:
+        guild_id (str): The guild id.
+        event (str, optional): The given event. Defaults to ''.
+
+    Returns:
+        dict: Response, if the event is provided, or a plain dict.
+    """    
+    guild = get_guild(guild_id)
+    
+    result_dict = dict(guildId=guild.guild_id, guildName=guild.guild_name,
+                        guildCreator=guild.guild_creator, guildVisibility=guild.guild_visibility,
+                        guildMaxMembers=guild.guild_max_members, guildMembers=guild.guild_members)
+    
+    if event:
+        return format_res(event, **result_dict)
+
+    return result_dict
+
 """ Main """
 
 async def request_switcher(wss: WebSocketClientProtocol, data: dict):
@@ -401,6 +512,8 @@ async def request_switcher(wss: WebSocketClientProtocol, data: dict):
         Decorator Check Responses:
             AccountOnly: The requested event requires that this IP be associated with an account.
             NoAccountOnly: The requested event requires that this IP NOT be associated with an account.
+            GuildOnly: The requested event requires that this account is part of a guild.
+            NoGuildOnly: The requested event requires that this account is NOT part of a guild.
     """
 
     try:
@@ -415,7 +528,6 @@ async def request_switcher(wss: WebSocketClientProtocol, data: dict):
     
     """ Run decorators and their respective checks. """
     for decorator in decorators_list:
-
         decorator_events = dict(globals())[f'{decorator}_events']
         
         if transformed_event in decorator_events:
@@ -648,11 +760,13 @@ def account(event: Callable):
             log.warn(wrapper_alr_exists.format('account only event', name))
 
         account_events[name] = event
+        
+        return event
 
     return wrapper(event)
 
 def account_check(event: str, wss: WebSocketClientProtocol) -> bool:
-    """ account_only decorator check. """
+    """ account decorator check. """
     if not has_account(wss.remote_address[0]):
         return format_res_err(event, 'AccountOnly', 'You must login to an account first before using this event.', True)
 
@@ -671,13 +785,75 @@ def no_account(event: Callable):
             log.warn(wrapper_alr_exists.format('no account only event', name))
 
         no_account_events[name] = event
+        
+        return event
 
     return wrapper(event)
 
 def no_account_check(event: str, wss: WebSocketClientProtocol) -> bool:
-    """ no_account_only decorator check. """
+    """ no_account decorator check. """
     if has_account(wss.remote_address[0]):
         return format_res_err(event, 'NoAccountOnly', 'You must logout of your current account first before using this event.', True)
+
+def guild(event: Callable):
+    """Decorator. Marks an event as only accessible within a guild. Overwrites duplicates.
+
+    Args:
+        event (Callable): The event to mark.
+    """
+
+    def wrapper(event: Callable):
+
+        name = event.__name__
+
+        if name in guild_events:
+            log.warn(wrapper_alr_exists.format('guild only event', name))
+
+        guild_events[name] = event
+        
+        return event
+
+    return wrapper(event)
+
+def guild_check(event: str, wss: WebSocketClientProtocol) -> bool:
+    """ guild decorator check. """
+    target_user = get_user(wss_accounts[wss.remote_address[0]])
+    
+    if not target_user:
+        return
+    
+    if not target_user.is_in_guild:
+        return format_res_err(event, 'GuildOnly', 'You must be part of a guild before using this event.', True)
+
+def no_guild(event: Callable):
+    """Decorator. Marks an event as only accessible while NOT within a guild. Overwrites duplicates.
+
+    Args:
+        event (Callable): The event to mark.
+    """
+
+    def wrapper(event: Callable, *args, **kwargs):
+
+        name = event.__name__
+
+        if name in no_guild_events:
+            log.warn(wrapper_alr_exists.format('no guild only event', name))
+
+        no_guild_events[name] = event
+        
+        return event
+
+    return wrapper(event)
+
+def no_guild_check(event: str, wss: WebSocketClientProtocol) -> bool:
+    """ no_guild decorator check. """
+    target_user = get_user(wss_accounts[wss.remote_address[0]])
+    
+    if not target_user:
+        return
+    
+    if target_user.is_in_guild:
+        return format_res_err(event, 'NoGuildOnly', 'You must leave your current guild before using this event.', True)
 
 """ Events """
 
@@ -744,7 +920,8 @@ def create_traveller(event: str, traveller_name: str, traveller_email: str, trav
     else:
         traveller_verification = '123456'
 
-    accounts_to_create[traveller_email] = TempTraveller(traveller_id, traveller_name, traveller_email, hashed_password, False, traveller_verification)
+    accounts_to_create[traveller_email] = TempTraveller(traveller_id, traveller_name, traveller_email,
+                                                        hashed_password, False, False, '', traveller_verification)
 
     return format_res(event, travellerId=traveller_id)
 
@@ -838,10 +1015,12 @@ def verify_traveller(event: str, traveller_email: str, traveller_code: str, wss:
     
     if IS_LOCAL:
         travellers[target_acc.traveller_id] = Traveller(target_acc.traveller_id, target_acc.traveller_name, target_acc.traveller_email,
-                                                        target_acc.traveller_password, target_acc.has_changed_name)
+                                                        target_acc.traveller_password, target_acc.has_changed_name, target_acc.is_in_guild,
+                                                        target_acc.guild_id)
     else:
         mdb.users.insert_one({target_acc.traveller_id: {'travellerName': target_acc.traveller_name, 'travellerEmail': target_acc.traveller_email,
-                                                        'travellerPassword': target_acc.traveller_password, 'hasChangedName': False}})
+                                                        'travellerPassword': target_acc.traveller_password, 'hasChangedName': target_acc.has_changed_name,
+                                                        'isInGuild': target_acc.is_in_guild, 'guildId': target_acc.guild_id}})
     
     wss_accounts[wss.remote_address[0]] = target_acc.traveller_id
     
@@ -1011,6 +1190,23 @@ def logout_traveller(event: str, wss: WebSocketClientProtocol):
     return format_res(event)
 
 @account
+def fetch_traveller(event: str, traveller_id: str):
+    """Fetches a traveller's info, if he exists.
+
+    Possible Responses:
+        fetchTravellerReply: Info about the traveller has been successfully fetched.
+
+        fetchTravellerNotFound: The traveller with the requested ID could not be found.
+    """
+    traveller = get_user(traveller_id)
+
+    if not traveller:
+        return format_res_err(event, 'NotFound', f'Traveller with id {traveller_id} not found.')
+    
+    return format_res(event, travellerId=traveller_id, travellerName=traveller.traveller_name,
+                            isInGuild=traveller.is_in_guild, guildId=traveller.guild_id)
+
+@account
 def fetch_travellers(event: str):
     """Fetches every single traveller's ID.
         
@@ -1018,22 +1214,6 @@ def fetch_travellers(event: str):
         fetchTravellersReply: The existing travellers' IDs have been successfully fetched.
     """
     return format_res(event, travellerIds=[id for id in travellers] if IS_LOCAL else [id for id in get_users()])
-
-@account
-def fetch_traveller(event: str, traveller_id: str):
-    """Fetches a traveller's info, if he exists in the database.
-
-    Possible Responses:
-        fetchTravellerReply: Info about a traveller has been successfully fetched.
-
-        fetchTravellerNotFound: The traveller with the requested ID could not be found.
-    """
-    traveller = get_user(traveller_id)
-
-    if traveller:
-        return format_res(event, travellerName=traveller.traveller_name, travellerId=traveller_id)
-
-    return format_res_err(event, 'NotFound', f'Traveller with id {traveller_id} not found.')
 
 @account
 def total_travellers(event: str):
@@ -1257,6 +1437,174 @@ def reset_traveller_name(event: str, traveller_password: str, new_traveller_name
     if not IS_TEST:
         loop.create_task(send_email(account.traveller_email, email_title.format('username changed'), [f"{email_content_changed.format('username')}"]))
 
+    return format_res(event)
+
+""" No guild only """
+
+@account
+@no_guild
+def create_guild(event: str, guild_name: str, guild_visibility: bool, guild_max_members: int, account: Traveller):
+    """Creates a guild.
+
+    Possible Responses:
+        createGuildReply: The guild has been successfully created.
+        
+        createGuildNameExceedsLimit: The provided name exceeds the current guild name length limitations.
+        createGuildNameInvalidCharacters: The name of the guild contains invalid characters.
+        
+        createGuildVisibilityInvalid: The guild visibility parameter is formatted incorrectly.
+    
+        createGuildMaxMembersInvalidCharacters: The guild max members key contains invalid characters.
+        createGuildMaxMembersExceedsLimit: The guild max members exceeds current length limitations.
+    """
+    
+    """ Name checks. """
+    guild_name = guild_name.strip()
+    
+    if not utils.check_length(guild_name, MIN_GUILD_LENGTH, MAX_GUILD_LENGTH):
+        return format_res_err(event, 'NameExceedsLimit', length_invalid.format('Guild name', MIN_GUILD_LENGTH, MAX_GUILD_LENGTH))
+    
+    if not utils.check_chars(guild_name, GUILD_CHARACTERS):
+        return format_res_err(event, 'NameInvalidCharacters', chars_invalid.format('The guild name'))
+
+    """ Visibility checks. """
+    if not guild_visibility in ['public', 'private']:
+        return format_res_err(event, 'VisibilityInvalid', argument_invalid_type.format('Guild visibility', 'public or private'))
+    
+    """ Max member checks. """
+    if not utils.check_chars(guild_max_members, digits):
+        return format_res_err(event, 'MaxMembersInvalidCharacters', chars_invalid.format('The guild max members key'))
+    
+    if not utils.check_length(guild_max_members, 1, MAX_GUILD_MAXMEMBERS):
+        return format_res_err(event, 'MaxMembersExceedsLimit', length_specific_invalid.format('The guild max members value', 1, MAX_GUILD_MAXMEMBERS))
+    
+    guild_id = utils.gen_id()
+    guild_creator = account.traveller_id
+    guild_members = [guild_creator]
+    
+    if IS_LOCAL:
+        guilds[guild_id] = Guild(guild_id, guild_name, guild_creator, guild_visibility, guild_max_members, guild_members)
+        travellers[account.traveller_id].guild_id = guild_id
+    else:
+        mdb.guilds.insert_one({guild_id: {'guildName': guild_name, 'guildCreator': guild_creator,'guildVisibility': guild_visibility,
+                                          'guildMaxMembers': guild_max_members, 'guildMembers': guild_members}})
+        update_user(account.traveller_id, isInGuild=True, guildId=guild_id)
+
+    return format_res(event, guildId=guild_id)
+
+@account
+@no_guild
+def join_guild(event: str, guild_id: str, account: Traveller):
+    """Joins a guild.
+
+    Possible Responses:
+        joinGuildReply: The guild has been successfully joined.
+        
+        joinGuildNotFound: The guild with the requested ID could not be found.
+        joinGuildMaxedOut: The target guild is already at max capacity.
+    """
+    
+    """ Guild id checks. """
+    guild = get_guild(guild_id)
+    
+    if not guild:
+        return format_res_err(event, 'NotFound', f'Guild with id {guild_id} not found.')
+        
+    if int(guild.guild_max_members) == len(guild.guild_members):
+        return format_res_err(event, 'MaxedOut', 'This guild is already full.')
+
+    target_id = account.traveller_id
+
+    if IS_LOCAL:
+        guilds[guild_id].guild_members.append(target_id)
+        travellers[target_id].is_in_guild = True
+        travellers[target_id].guild_id = guild_id
+        
+    else:
+        guild.guild_members.append(target_id)
+        update_guild(guild_id, guildMembers=guild.guild_members)
+        update_user(target_id, isInGuild=True, guildId=guild_id)
+
+    return format_res(event, guildId=guild_id)
+
+@account
+@no_guild
+def fetch_guild(event: str, guild_id: str):
+    """Fetches a guild's info, if it exists.
+
+    Possible Responses:
+        fetchGuildReply: Info about the guild has been successfully fetched.
+        
+        fetchGuildNotFound: The guild with the requested ID could not be found.
+    """
+    if not get_guild(guild_id):
+        return format_res_err(event, 'NotFound', f'Guild with id {guild_id} not found.')
+
+    return get_guild_info(guild_id, event)
+
+@account
+@no_guild
+def fetch_guilds(event: str):
+    """Fetches every single guild's ID.
+
+    Possible Responses:
+        fetchGuildsReply: The existing guilds' IDs have been successfully fetched.
+    """
+    guild_ids = []
+    
+    if IS_LOCAL:
+        guild_ids = [guild.guild_id for guild in guilds.values() if guild.guild_visibility == 'public']
+    
+    else:
+        guild_ids = [guild.guild_id for guild in get_guilds().values() if guild.guild_visibility == 'public']    
+    
+    return format_res(event, guildIds=guild_ids)
+
+""" Guild only """
+
+@account
+@guild
+def current_guild(event: str, account: Traveller):
+    """Returns info about the user's current guild.
+
+    Possible Responses:
+        currentGuildReply: Info of the current guild has been fetched.
+    """
+    return get_guild_info(account.guild_id, event)
+
+@account
+@guild
+def leave_guild(event: str, account: Traveller):
+    """Removes the user from his current guild.
+
+    Possible Responses:
+        leaveGuildReply: The user has successfully left the guild.
+    """
+    
+    target_id = account.traveller_id
+    target_guild = get_guild(account.guild_id)
+    
+    if IS_LOCAL:
+        if target_id == target_guild.guild_creator:
+            del guilds[target_guild.guild_id]
+            
+        else:
+            guilds[account.guild_id].guild_members.remove(target_id)
+
+        travellers[target_id].is_in_guild = False
+        travellers[target_id].guild_id = ''
+        
+    else:
+        if target_id == target_guild.guild_creator:
+            mdb.guilds.find_one_and_delete({'_id': ObjectId(get_guilds(True)[account.guild_id]['mongoId'])})
+            
+        else:
+            target_guild.guild_members.remove(target_id)
+        
+            update_guild(account.guild_id, guildMembers=target_guild.guild_members)
+        
+        update_user(target_id, isInGuild=False, guildId='')
+        
     return format_res(event)
 
 """ Tasks """

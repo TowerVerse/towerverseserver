@@ -49,6 +49,13 @@ MAX_PASS_LENGTH = 50
 
 VERIFICATION_CODE_LENGTH = 6
 
+""" Guild-related. """
+GUILD_CHARACTERS = f'{ascii_letters} '
+MIN_GUILD_LENGTH = 5
+MAX_GUILD_LENGTH = 25
+
+MAX_GUILD_MAXMEMBERS = 10
+
 """ Log related. """
 LOGGER_NAME = 'towerverse-server'
 
@@ -59,7 +66,9 @@ mongo_client_extra_args = 'retryWrites=true&w=majority'
 
 """ String templates. """
 length_invalid = '{} should consist of {} to {} characters.'
+length_specific_invalid = '{} should be between {} and {}.'
 chars_invalid = '{} contains invalid characters.'
+argument_invalid_type = '{} is of incorrect type. Target type must be {}.'
 email_title = 'TowerVerse {}'
 email_content_code = 'This is your TowerVerse {} code: '
 email_content_changed = 'Your Towerverse {} has been changed successfully.'
