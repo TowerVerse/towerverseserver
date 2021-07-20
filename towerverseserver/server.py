@@ -1478,12 +1478,13 @@ def create_guild(event: str, guild_name: str, guild_visibility: bool, guild_max_
     if not utils.check_length(guild_max_members, 1, MAX_GUILD_MAXMEMBERS):
         return format_res_err(event, 'MaxMembersExceedsLimit', length_specific_invalid.format('The guild max members value', 1, MAX_GUILD_MAXMEMBERS))
     
-    guild_id = utils.gen_id()
+    guild_id = utils.gen_id() if not IS_TEST else '123456'
     guild_creator = account.traveller_id
     guild_members = [guild_creator]
     
     if IS_LOCAL:
         guilds[guild_id] = Guild(guild_id, guild_name, guild_creator, guild_visibility, guild_max_members, guild_members)
+        travellers[account.traveller_id].is_in_guild = True
         travellers[account.traveller_id].guild_id = guild_id
     else:
         mdb.guilds.insert_one({guild_id: {'guildName': guild_name, 'guildCreator': guild_creator,'guildVisibility': guild_visibility,
@@ -1586,7 +1587,8 @@ def leave_guild(event: str, account: Traveller):
     
     if IS_LOCAL:
         if target_id == target_guild.guild_creator:
-            del guilds[target_guild.guild_id]
+            if not IS_TEST:
+                del guilds[target_guild.guild_id]
             
         else:
             guilds[account.guild_id].guild_members.remove(target_id)
