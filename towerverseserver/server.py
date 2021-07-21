@@ -1454,7 +1454,7 @@ def reset_traveller_name(event: str, traveller_password: str, new_traveller_name
 
 @account
 @no_guild
-def create_guild(event: str, guild_name: str, guild_description: str, guild_visibility: bool, guild_max_members: int, account: Traveller):
+def create_guild(event: str, guild_name: str, guild_description: str, guild_visibility: str, guild_max_members: int, account: Traveller):
     """Creates a guild.
 
     Possible Responses:
