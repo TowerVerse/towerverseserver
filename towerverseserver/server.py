@@ -589,6 +589,9 @@ async def request_switcher(wss: WebSocketClientProtocol, data: dict):
 
     if 'account' in target_arg_names:
         target_args['account'] = get_user(wss_accounts[wss.remote_address[0]])
+        
+    if 'guild' in target_arg_names:
+        target_args['guild'] = get_guild(get_user(wss_accounts[wss.remote_address[0]]).guild_id)
 
     args_errored = utils.check_loop_data(target_args, target_arg_names)
 
@@ -760,7 +763,7 @@ def task(task: Callable):
         name = task.__name__
 
         if name in tasks_list:
-            log.warn(wrapper_alr_exists.format('task', name))
+            log.warning(wrapper_alr_exists.format('task', name))
 
         tasks_list[name] = task
 
@@ -779,7 +782,7 @@ def account(event: Callable):
 
         """ Don't mind if it overwrites another one, just warn. """
         if name in account_events:
-            log.warn(wrapper_alr_exists.format('account only event', name))
+            log.warning(wrapper_alr_exists.format('account only event', name))
 
         account_events[name] = event
         
@@ -804,7 +807,7 @@ def no_account(event: Callable):
         name = event.__name__
 
         if name in no_account_events:
-            log.warn(wrapper_alr_exists.format('no account only event', name))
+            log.warning(wrapper_alr_exists.format('no account only event', name))
 
         no_account_events[name] = event
         
@@ -829,7 +832,7 @@ def guild(event: Callable):
         name = event.__name__
 
         if name in guild_events:
-            log.warn(wrapper_alr_exists.format('guild only event', name))
+            log.warning(wrapper_alr_exists.format('guild only event', name))
 
         guild_events[name] = event
         
@@ -859,7 +862,7 @@ def no_guild(event: Callable):
         name = event.__name__
 
         if name in no_guild_events:
-            log.warn(wrapper_alr_exists.format('no guild only event', name))
+            log.warning(wrapper_alr_exists.format('no guild only event', name))
 
         no_guild_events[name] = event
         
@@ -1589,17 +1592,17 @@ def fetch_guilds(event: str):
 
 @account
 @guild
-def current_guild(event: str, account: Traveller):
+def current_guild(event: str, guild: Guild):
     """Returns info about the user's current guild.
 
     Possible Responses:
         currentGuildReply: Info of the current guild has been fetched.
     """
-    return format_res(event, **get_guild_info(account.guild_id))
+    return format_res(event, **get_guild_info(guild.guild_id))
 
 @account
 @guild
-def leave_guild(event: str, account: Traveller):
+def leave_guild(event: str, account: Traveller, guild: Guild):
     """Removes the user from his current guild.
 
     Possible Responses:
@@ -1607,19 +1610,18 @@ def leave_guild(event: str, account: Traveller):
     """
     
     target_id = account.traveller_id
-    target_guild = get_guild(account.guild_id)
     
     if IS_LOCAL:
-        if target_id == target_guild.guild_creator:
+        if target_id == guild.guild_creator:
             if not IS_TEST:
-                for traveller_id in target_guild.guild_members:
+                for traveller_id in guild.guild_members:
                     travellers[traveller_id].is_in_guild = False
                     travellers[traveller_id].guild_id = ''
                 
-                del guilds[target_guild.guild_id]
+                del guilds[guild.guild_id]
             
         else:
-            guilds[account.guild_id].guild_members.remove(target_id)
+            guilds[guild.guild_id].guild_members.remove(target_id)
 
             travellers[target_id].is_in_guild = False
             travellers[target_id].guild_id = ''
@@ -1629,18 +1631,18 @@ def leave_guild(event: str, account: Traveller):
             travellers[target_id].guild_id = ''
         
     else:
-        if target_id == target_guild.guild_creator:
-            for traveller_id in target_guild.guild_members:
+        if target_id == guild.guild_creator:
+            for traveller_id in guild.guild_members:
                 update_user(traveller_id, isInGuild=False, guildId='')
                 
-            mdb.guilds.find_one_and_delete({'_id': ObjectId(get_guilds(True)[account.guild_id]['mongoId'])})
+            mdb.guilds.find_one_and_delete({'_id': ObjectId(get_guilds(True)[guild.guild_id]['mongoId'])})
             
         else:
-            target_guild.guild_members.remove(target_id)
+            guild.guild_members.remove(target_id)
         
-            update_guild(account.guild_id, guildMembers=target_guild.guild_members)
+            update_guild(guild.guild_id, guildMembers=guild.guild_members)
             
-            update_user(account.traveller_id, isInGuild=False, guildId='')
+            update_user(guild.traveller_id, isInGuild=False, guildId='')
         
     return format_res(event)
 
