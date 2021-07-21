@@ -168,6 +168,9 @@ no_account_events: Dict[str, Callable] = {}
 """ Guild-only. These are only used if the requestee is part of a guild otherwise an error is thrown. Filled in with the guild_only decorator. """
 guild_events: Dict[str, Callable] = {}
 
+""" Guild-only. These are only used if the requestee is the owner of the guild otherwise an error is thrown. Filled in with the guild_only decorator. """
+guild_owner_events: Dict[str, Callable] = {}
+
 """ No-guild-only. These are only used if the requestee is NOT part of a guild otherwise an error is thrown. Filled in with the guild_only decorator. """
 no_guild_events: Dict[str, Callable] = {}
 
@@ -560,6 +563,12 @@ async def request_switcher(wss: WebSocketClientProtocol, data: dict):
 
             if 'wss' in getfullargspec(decorator_check_func).args:
                 decorator_check_args['wss'] = wss
+            
+            if 'account' in getfullargspec(decorator_check_func).args:
+                decorator_check_args['account'] = get_user(wss_accounts[wss.remote_address[0]])
+            
+            if 'guild' in getfullargspec(decorator_check_func).args:
+                decorator_check_args['guild'] = get_guild(get_user(wss_accounts[wss.remote_address[0]]).guild_id)
 
             decorator_check_result = decorator_check_func(**decorator_check_args)
 
@@ -840,16 +849,45 @@ def guild(event: Callable):
 
     return wrapper(event)
 
-def guild_check(event: str, wss: WebSocketClientProtocol) -> bool:
+def guild_check(event: str, wss: WebSocketClientProtocol, account: Traveller) -> bool:
     """ guild decorator check. """
-    target_user = get_user(wss_accounts[wss.remote_address[0]])
-    
-    if not target_user:
+    if not account:
         return
     
-    if not target_user.is_in_guild:
+    if not account.is_in_guild:
         return format_res_err(event, 'GuildOnly', 'You must be part of a guild before using this event.', True)
 
+def guild_owner(event: Callable):
+    """Decorator. Marks an event as only accessible if the traveller is the guild's owner. Overwrites duplicates.
+
+    Args:
+        event (Callable): The event to mark.
+    """
+
+    def wrapper(event: Callable):
+
+        name = event.__name__
+
+        if name in guild_owner_events:
+            log.warning(wrapper_alr_exists.format('guild owner only event', name))
+
+        guild_owner_events[name] = event
+        
+        return event
+
+    return wrapper(event)
+
+def guild_owner_check(event: str, wss: WebSocketClientProtocol, account: Traveller, guild: Guild) -> bool:
+    """ guild_owner decorator check. """
+    if not account or not guild:
+        return
+
+    if not account.is_in_guild:
+        return format_res_err(event, 'GuildOnly', 'You must be part of a guild before using this event.', True)
+    
+    if not int(account.traveller_id) == guild.guild_creator:
+        return format_res_err(event, 'GuildOnwerOnly', 'You must be the owner of your guild to use this event.', True)
+    
 def no_guild(event: Callable):
     """Decorator. Marks an event as only accessible while NOT within a guild. Overwrites duplicates.
 
@@ -1472,7 +1510,7 @@ def create_guild(event: str, guild_name: str, guild_description: str, guild_visi
         createGuildVisibilityInvalid: The guild visibility parameter is formatted incorrectly.
     
         createGuildMaxMembersInvalidCharacters: The guild max members key contains invalid characters.
-        createGuildMaxMembersExceedsLimit: The guild max members exceeds current length limitations.
+        createGuildMaxMembersExceedsLimit: The guild max members key exceeds current length limitations.
     """
     
     """ Name checks. """
@@ -1484,7 +1522,7 @@ def create_guild(event: str, guild_name: str, guild_description: str, guild_visi
     if not utils.check_chars(guild_name, GUILD_NAME_CHARACTERS):
         return format_res_err(event, 'NameInvalidCharacters', chars_invalid.format('The guild name'))
 
-    """ Descrition checks. """
+    """ Description checks. """
     guild_description = guild_description.strip()
     
     if not utils.check_length(guild_description, MIN_GUILD_DESCRIPTION_LENGTH, MAX_GUILD_DESCRIPTION_LENGTH):
@@ -1512,6 +1550,7 @@ def create_guild(event: str, guild_name: str, guild_description: str, guild_visi
         guilds[guild_id] = Guild(guild_id, guild_name, guild_description, guild_creator, guild_visibility, guild_max_members, guild_members)
         travellers[account.traveller_id].is_in_guild = True
         travellers[account.traveller_id].guild_id = guild_id
+        
     else:
         mdb.guilds.insert_one({guild_id: {'guildName': guild_name, 'guildDescription': guild_description,
                                           'guildCreator': guild_creator,'guildVisibility': guild_visibility,
@@ -1643,6 +1682,138 @@ def leave_guild(event: str, account: Traveller, guild: Guild):
             update_guild(guild.guild_id, guildMembers=guild.guild_members)
             
             update_user(guild.traveller_id, isInGuild=False, guildId='')
+        
+    return format_res(event)
+
+""" Guild owner only """
+@account
+@guild_owner
+def change_guild_name(event: str, new_guild_name: str, guild: Guild):
+    """Changes the guild's name.
+
+    Possible Responses:
+        changeGuildNameReply: The guild's name has been changed successfully.
+        
+        changeGuildNameNameExceedsLimit: The provided name exceeds the current guild name length limitations.
+        createGuildNameNameInvalidCharacters: The name of the guild contains invalid characters.
+    """
+    
+    """ Name checks. """
+    new_guild_name = new_guild_name.strip()
+    
+    if not utils.check_length(new_guild_name, MIN_GUILD_NAME_LENGTH, MAX_GUILD_NAME_LENGTH):
+        return format_res_err(event, 'NameExceedsLimit', length_invalid.format('Guild name', MIN_GUILD_NAME_LENGTH, MAX_GUILD_NAME_LENGTH))
+    
+    if not utils.check_chars(new_guild_name, GUILD_NAME_CHARACTERS):
+        return format_res_err(event, 'NameInvalidCharacters', chars_invalid.format('The guild name'))
+    
+    if IS_LOCAL:
+        guilds[guild.guild_id].guild_name = new_guild_name
+        
+    else:
+        update_guild(guild.guild_id, guildName=new_guild_name)
+        
+    return format_res(event)
+
+@account
+@guild_owner
+def change_guild_description(event: str, new_guild_description: str, guild: Guild):
+    """Changes the guild's description.
+
+    Possible Responses:
+        changeGuildDescriptionReply: The guild's description has been changed successfully.
+        
+        changeGuildDescriptionDescriptionExceedsLimit: The provided description exceeds the current guild description length limitations.
+        changeGuildDescriptionDescriptionInvalidCharacters: The description of the guild contains invalid characters.
+    """
+    
+    """ Description checks. """
+    new_guild_description = new_guild_description.strip()
+    
+    if not utils.check_length(new_guild_description, MIN_GUILD_DESCRIPTION_LENGTH, MAX_GUILD_DESCRIPTION_LENGTH):
+        return format_res_err(event, 'DescriptionExceedsLimit', length_invalid.format('Guild description', MIN_GUILD_DESCRIPTION_LENGTH, MAX_GUILD_DESCRIPTION_LENGTH))
+    
+    if not utils.check_chars(new_guild_description, GUILD_DESCRIPTION_CHARACTERS):
+        return format_res_err(event, 'DescriptionInvalidCharacters', chars_invalid.format('The guild description'))
+    
+    if IS_LOCAL:
+        guilds[guild.guild_id].guild_description = new_guild_description
+        
+    else:
+        update_guild(guild.guild_id, guildDescription=new_guild_description)
+        
+    return format_res(event)
+
+@account
+@guild_owner
+def change_guild_visibility(event: str, new_guild_visibility: str, guild: Guild):
+    """Changes the guild's visibility.
+
+    Possible Responses:
+        changeGuildVisibilityReply: The guild's visibility has been changed successfully.
+        
+        changeGuildVisibilityVisibilityInvalid: The guild visibility parameter is formatted incorrectly.
+    """
+    
+    """ Visibility checks. """
+    if not new_guild_visibility in ['public', 'private']:
+        return format_res_err(event, 'VisibilityInvalid', argument_invalid_type.format('Guild visibility', 'public or private'))
+
+    if IS_LOCAL:
+        guilds[guild.guild_id].guild_visibility = new_guild_visibility
+        
+    else:
+        update_guild(guild.guild_id, guildVisibility=new_guild_visibility)
+        
+    return format_res(event)
+
+@account
+@guild_owner
+def change_guild_max_members(event: str, new_guild_max_members: str, guild: Guild):
+    """Changes the guild's max members number.
+
+    Possible Responses:
+        changeGuildMaxMembersReply: The guild's name has been changed successfully.
+        
+        changeGuildMaxMembersMaxMembersInvalidCharacters: The guild max members key contains invalid characters.
+        changeGuildMaxMembersMaxMembersExceedsLimit: The guild max members key exceeds current length limitations.
+    """
+    
+    """ Max member checks. """
+    if not utils.check_chars(new_guild_max_members, digits):
+        return format_res_err(event, 'MaxMembersInvalidCharacters', chars_invalid.format('The guild max members key'))
+    
+    if not utils.check_length(new_guild_max_members, 1, MAX_GUILD_MAX_MEMBERS_NUMBER):
+        return format_res_err(event, 'MaxMembersExceedsLimit', length_specific_invalid.format('The guild max members value', 1, MAX_GUILD_MAX_MEMBERS_NUMBER))
+    
+    if IS_LOCAL:
+        guilds[guild.guild_id].guild_max_members = new_guild_max_members
+        
+    else:
+        update_guild(guild.guild_id, guildMaxMembers=new_guild_max_members)
+        
+    return format_res(event)
+
+@account
+@guild_owner
+def transfer_guild_ownership(event: str, new_guild_owner_id: str, guild: Guild):
+    """Transfers guild ownership to an existing member.
+
+    Possible Responses:
+        transferGuildOwnershipReply: The guild's onwership has been transferred successfully.
+
+        transferGuildOwnershipNotFound: The target traveller could not be found.
+    """
+    
+    """ Member checks. """
+    if new_guild_owner_id not in guild.guild_members:
+        return format_res_err(event, 'NotFound', 'The target user could not be found in this guild.')
+    
+    if IS_LOCAL:
+        guilds[guild.guild_id].guild_creator = new_guild_owner_id
+        
+    else:
+        update_guild(guild.guild_id, guildCreator=new_guild_owner_id)
         
     return format_res(event)
 
