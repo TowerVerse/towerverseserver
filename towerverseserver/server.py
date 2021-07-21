@@ -477,25 +477,46 @@ def update_guild(guild_id: str, **kwargs) -> Guild:
 
     return get_user(guild_id)
 
-def get_guild_info(guild_id: str, event: str = '') -> dict:
-    """Returns guild info as a response, if the event argument is provided, otherwise as a plain dict.
+def get_guild_info(guild_id: str) -> dict:
+    """Returns guild info.
 
     Args:
         guild_id (str): The guild id.
-        event (str, optional): The given event. Defaults to ''.
 
     Returns:
-        dict: Response, if the event is provided, or a plain dict.
+        dict: The guild info.
     """    
     guild = get_guild(guild_id)
+    
+    if not guild:
+        return
     
     result_dict = dict(guildId=guild.guild_id, guildName=guild.guild_name,
                         guildCreator=guild.guild_creator, guildVisibility=guild.guild_visibility,
                         guildMaxMembers=guild.guild_max_members, guildMembers=guild.guild_members)
-    
-    if event:
-        return format_res(event, **result_dict)
 
+    return result_dict
+
+def get_user_info(traveller_id: str) -> dict:
+    """Returns user info.
+
+    Args:
+        traveller_id (str): The traveller id.
+
+    Returns:
+        dict: The user info.
+    """    
+    user = get_user(traveller_id)
+    
+    if not user:
+        return
+
+    result_dict = dict(travellerId=user.traveller_id, travellerName=user.traveller_name, hasChangedName=user.has_changed_name,
+                        isInGuild=user.is_in_guild)
+    
+    if user.is_in_guild:
+        result_dict['guildId'] = user.guild_id
+        
     return result_dict
 
 """ Main """
@@ -1190,13 +1211,10 @@ def fetch_traveller(event: str, traveller_id: str):
 
         fetchTravellerNotFound: The traveller with the requested ID could not be found.
     """
-    traveller = get_user(traveller_id)
-
-    if not traveller:
+    if not get_user(traveller_id):
         return format_res_err(event, 'NotFound', f'Traveller with id {traveller_id} not found.')
     
-    return format_res(event, travellerId=traveller_id, travellerName=traveller.traveller_name,
-                            isInGuild=traveller.is_in_guild, guildId=traveller.guild_id)
+    return format_res(event, **get_user_info(traveller_id))
 
 @account
 def fetch_travellers(event: str):
@@ -1533,7 +1551,7 @@ def fetch_guild(event: str, guild_id: str):
     if not get_guild(guild_id):
         return format_res_err(event, 'NotFound', f'Guild with id {guild_id} not found.')
 
-    return get_guild_info(guild_id, event)
+    return format_res(event, **get_guild_info(guild_id))
 
 @account
 @no_guild
@@ -1563,7 +1581,7 @@ def current_guild(event: str, account: Traveller):
     Possible Responses:
         currentGuildReply: Info of the current guild has been fetched.
     """
-    return get_guild_info(account.guild_id, event)
+    return format_res(event, **get_guild_info(account.guild_id))
 
 @account
 @guild
@@ -1580,24 +1598,35 @@ def leave_guild(event: str, account: Traveller):
     if IS_LOCAL:
         if target_id == target_guild.guild_creator:
             if not IS_TEST:
+                for traveller_id in target_guild:
+                    travellers[traveller_id].is_in_guild = False
+                    travellers[traveller_id].guild_id = ''
+                
                 del guilds[target_guild.guild_id]
             
         else:
             guilds[account.guild_id].guild_members.remove(target_id)
 
-        travellers[target_id].is_in_guild = False
-        travellers[target_id].guild_id = ''
+            travellers[target_id].is_in_guild = False
+            travellers[target_id].guild_id = ''
+            
+        if IS_TEST:
+            travellers[target_id].is_in_guild = False
+            travellers[target_id].guild_id = ''
         
     else:
         if target_id == target_guild.guild_creator:
+            for traveller_id in target_guild.guild_members:
+                update_user(traveller_id, isInGuild=False, guildId='')
+                
             mdb.guilds.find_one_and_delete({'_id': ObjectId(get_guilds(True)[account.guild_id]['mongoId'])})
             
         else:
             target_guild.guild_members.remove(target_id)
         
             update_guild(account.guild_id, guildMembers=target_guild.guild_members)
-        
-        update_user(target_id, isInGuild=False, guildId='')
+            
+            update_user(account.traveller_id, isInGuild=False, guildId='')
         
     return format_res(event)
 
