@@ -1066,7 +1066,7 @@ def resend_traveller_code(event: str, traveller_email: str):
     return format_res(event)
 
 @no_account
-def reset_traveller_password(event: str, traveller_email: str, old_traveller_password: str, new_traveller_password: str):
+def reset_traveller_password(event: str, traveller_email: str):
     """Resets a not-connected traveller's password.
 
     Possible Responses:
@@ -1075,11 +1075,6 @@ def reset_traveller_password(event: str, traveller_email: str, old_traveller_pas
         resetTravellerPasswordEmailExceedsLimit: The provided email exceeds the current name length limitations.
         resetTravellerPasswordEmailInvalidCharacters: The email of the account contains invalid characters.
         resetTravellerPasswordEmailInvalidFormat: The provided email is not formatted correctly. Possibly the domain name is omitted/invalid.
-
-        resetTravellerPasswordPasswordExceedsLimit: The provided password exceeds current password length limitations.
-        resetTravellerPasswordPasswordInvalidCharacters: The password of the account contains invalid characters.
-
-        resetTravellerPasswordInvalidPassword: The given password doesn't match the original one.
     """
 
     """ Email checks. """
@@ -1090,26 +1085,11 @@ def reset_traveller_password(event: str, traveller_email: str, old_traveller_pas
     if traveller_email_error:
         return format_res_err(event, traveller_email_error[0], traveller_email_error[1])
 
-    """ Password checks. """
-    old_traveller_password, new_traveller_password = utils.remove_whitespace(old_traveller_password), utils.remove_whitespace(new_traveller_password)
-
-    old_traveller_password_checks, new_traveller_password_checks = utils.check_password(old_traveller_password), utils.check_password(new_traveller_password)
-
-    if old_traveller_password_checks:
-        return format_res_err(event, old_traveller_password_checks[0], old_traveller_password_checks[1])
-        
-    if new_traveller_password_checks:
-        return format_res_err(event, new_traveller_password_checks[0], new_traveller_password_checks[1])
-
+    """ Send email. """
     target_acc = get_user_by_email(traveller_email)
 
     if not target_acc:
         return format_res_err(event, 'NotFound', f'The Traveller with email {traveller_email} could not be found.')
-
-    if not checkpw(bytes(old_traveller_password, 'ascii'), target_acc.traveller_password):
-        return format_res_err(event, 'InvalidPassword', 'The password is invalid.')
-
-    """ Reset password and send email. """
 
     traveller_verification = utils.gen_verification_code() if not IS_TEST else '123456'
 
@@ -1121,12 +1101,12 @@ def reset_traveller_password(event: str, traveller_email: str, old_traveller_pas
     else:
         traveller_verification = '123456'
 
-    password_change_request_codes[target_acc.traveller_id] = [traveller_verification, new_traveller_password]
+    password_change_request_codes[target_acc.traveller_id] = traveller_verification
 
     return format_res(event)
 
 @no_account
-def reset_traveller_password_final(event: str, traveller_email: str, traveller_password_code: str):
+def reset_traveller_password_final(event: str, traveller_email: str, traveller_password_code: str, new_traveller_password: str):
     """Called after resetTravellerPassword to perform the actual operation with the given code.
 
     Possible Responses:
@@ -1136,8 +1116,12 @@ def reset_traveller_password_final(event: str, traveller_email: str, traveller_p
         resetTravellerPasswordFinalEmailInvalidCharacters: The email of the account contains invalid characters.
         resetTravellerPasswordFInalEmailInvalidFormat: The provided email is not formatted correctly. Possibly the domain name is omitted/invalid.
         
-        resetTravellerPasswordFinalNoCode: You haven't called resetTravellerPassword.
+        resetTravellerPasswordFinalPasswordExceedsLimit: The provided password exceeds current password length limitations.
+        resetTravellerPasswordFinalPasswordInvalidCharacters: The password of the account contains invalid characters.
+        
         resetTravellerPasswordFinalCodeExceedsLimit: The code's length is not VERIFICATION_CODE_LENGTH.
+        resetTravellerPasswordFinalNotFound: The specified traveller could not be found.
+        resetTravellerPasswordFinalNoCode: You haven't called resetTravellerPassword.
         resetTravellerPasswordFinalInvalidCode: The verification code is invalid.
     """    
     
@@ -1146,6 +1130,14 @@ def reset_traveller_password_final(event: str, traveller_email: str, traveller_p
 
     if traveller_email_error:
         return format_res_err(event, traveller_email_error[0], traveller_email_error[1])
+
+    """ Password checks. """
+    new_traveller_password = utils.remove_whitespace(new_traveller_password)
+
+    new_traveller_password_checks = utils.check_password(new_traveller_password)
+
+    if new_traveller_password_checks:
+        return format_res_err(event, new_traveller_password_checks[0], new_traveller_password_checks[1])
 
     """ Reset password and send email. """
     if not len(traveller_password_code) == VERIFICATION_CODE_LENGTH:
@@ -1159,10 +1151,10 @@ def reset_traveller_password_final(event: str, traveller_email: str, traveller_p
     if not target_acc.traveller_id in password_change_request_codes:
         return format_res_err(event, 'NoCode', 'No password change code has been requested.')
 
-    if not password_change_request_codes[target_acc.traveller_id][0] == traveller_password_code:
+    if not password_change_request_codes[target_acc.traveller_id] == traveller_password_code:
         return format_res_err(event, 'InvalidCode', 'The provided code is invalid.')
 
-    new_hashed_password = hashpw(bytes(password_change_request_codes[target_acc.traveller_id][1], 'ascii'), gensalt(rounds=13))
+    new_hashed_password = hashpw(bytes(new_traveller_password, 'ascii'), gensalt(rounds=13))
 
     if IS_LOCAL:
         travellers[target_acc.traveller_id].traveller_password = new_hashed_password

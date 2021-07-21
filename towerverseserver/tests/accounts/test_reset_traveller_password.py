@@ -29,15 +29,14 @@ import pytest
 async def test_reset_traveller_password_response():
     async with connect('ws://localhost:5000') as wss:
 
-        await wss.send(dumps({'event': 'resetTravellerPassword', 'travellerEmail': 'someemailwhichdoesntexist@gmail.com',
-                            'oldTravellerPassword': 'testpassword123', 'newTravellerPassword': 'testpassword123'}))
+        await wss.send(dumps({'event': 'resetTravellerPassword', 'travellerEmail': 'someemailwhichdoesntexist@gmail.com'}))
 
         response = loads(await wss.recv())
 
         assert isinstance(response, dict) and response['event'] == 'resetTravellerPasswordReply'
 
         await wss.send(dumps({'event': 'resetTravellerPasswordFinal', 'travellerEmail': 'someemailwhichdoesntexist@gmail.com',
-                            'travellerPasswordCode': '123456'}))
+                            'travellerPasswordCode': '123456', 'newTravellerPassword': 'testpassword123'}))
 
         response = loads(await wss.recv())
 
