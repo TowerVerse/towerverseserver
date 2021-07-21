@@ -41,6 +41,7 @@ class Guild():
     """The base `Guild` instance. """
     guild_id: str
     guild_name: str
+    guild_description: str
     guild_creator: str
     guild_visibility: str
     guild_max_members: str

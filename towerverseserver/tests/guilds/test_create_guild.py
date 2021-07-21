@@ -29,8 +29,9 @@ import pytest
 async def test_create_guild_response():
     async with connect('ws://localhost:5000') as wss:
 
-        await wss.send(dumps({'event': 'createGuild', 'guildName': 'some clan name', 
-                            'guildVisibility': 'public', 'guildMaxMembers': '5'}))
+        await wss.send(dumps({'event': 'createGuild', 'guildName': 'some clan name',
+                              'guildDescription': 'some guild description right here',
+                              'guildVisibility': 'public', 'guildMaxMembers': '5'}))
 
         response = loads(await wss.recv())
 

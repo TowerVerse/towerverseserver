@@ -15,7 +15,7 @@ Extra info:
 """ BUILT-IN MODULES """
 
 """ Character limits. """
-from string import ascii_letters, digits
+from string import ascii_letters, digits, punctuation
 
 """ ONLY USED FOR THE LOCAL VERSION """
 
@@ -50,11 +50,15 @@ MAX_PASS_LENGTH = 50
 VERIFICATION_CODE_LENGTH = 6
 
 """ Guild-related. """
-GUILD_CHARACTERS = f'{ascii_letters} '
-MIN_GUILD_LENGTH = 5
-MAX_GUILD_LENGTH = 25
+GUILD_NAME_CHARACTERS = f'{ascii_letters}{digits}{punctuation} '
+MIN_GUILD_NAME_LENGTH = 5
+MAX_GUILD_NAME_LENGTH = 25
 
-MAX_GUILD_MAXMEMBERS = 10
+GUILD_DESCRIPTION_CHARACTERS = f'{ascii_letters}{digits}{punctuation} '
+MIN_GUILD_DESCRIPTION_LENGTH = 1
+MAX_GUILD_DESCRIPTION_LENGTH = 100
+
+MAX_GUILD_MAX_MEMBERS_NUMBER = 10
 
 """ Log related. """
 LOGGER_NAME = 'towerverse-server'

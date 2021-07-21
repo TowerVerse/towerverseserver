@@ -415,7 +415,7 @@ def get_guilds(pure: bool = False) -> Dict[str, Guild]:
         mongo_id = str(cursor['_id']).split('\'')[0]
 
         if not pure:
-            result_guilds[guild_id] = Guild(guild_id, guild_dict['guildName'], guild_dict['guildCreator'], 
+            result_guilds[guild_id] = Guild(guild_id, guild_dict['guildName'], guild_dict['guildDescription'], guild_dict['guildCreator'], 
                                         guild_dict['guildVisibility'], guild_dict['guildMaxMembers'], guild_dict['guildMembers'])
             
         else:
@@ -492,8 +492,9 @@ def get_guild_info(guild_id: str) -> dict:
         return
     
     result_dict = dict(guildId=guild.guild_id, guildName=guild.guild_name,
-                        guildCreator=guild.guild_creator, guildVisibility=guild.guild_visibility,
-                        guildMaxMembers=guild.guild_max_members, guildMembers=guild.guild_members)
+                       guildDescription=guild.guild_description, guildCreator=guild.guild_creator, 
+                       guildVisibility=guild.guild_visibility, guildMaxMembers=guild.guild_max_members,
+                       guildMembers=guild.guild_members)
 
     return result_dict
 
@@ -853,7 +854,7 @@ def no_guild(event: Callable):
         event (Callable): The event to mark.
     """
 
-    def wrapper(event: Callable, *args, **kwargs):
+    def wrapper(event: Callable):
 
         name = event.__name__
 
@@ -1453,7 +1454,7 @@ def reset_traveller_name(event: str, traveller_password: str, new_traveller_name
 
 @account
 @no_guild
-def create_guild(event: str, guild_name: str, guild_visibility: bool, guild_max_members: int, account: Traveller):
+def create_guild(event: str, guild_name: str, guild_description: str, guild_visibility: bool, guild_max_members: int, account: Traveller):
     """Creates a guild.
 
     Possible Responses:
@@ -1461,6 +1462,9 @@ def create_guild(event: str, guild_name: str, guild_visibility: bool, guild_max_
         
         createGuildNameExceedsLimit: The provided name exceeds the current guild name length limitations.
         createGuildNameInvalidCharacters: The name of the guild contains invalid characters.
+        
+        createGuildDescriptionExceedsLimit: The provided name exceeds the current guild name length limitations.
+        createGuildDescriptionInvalidCharacters: The name of the guild contains invalid characters.
         
         createGuildVisibilityInvalid: The guild visibility parameter is formatted incorrectly.
     
@@ -1471,11 +1475,20 @@ def create_guild(event: str, guild_name: str, guild_visibility: bool, guild_max_
     """ Name checks. """
     guild_name = guild_name.strip()
     
-    if not utils.check_length(guild_name, MIN_GUILD_LENGTH, MAX_GUILD_LENGTH):
-        return format_res_err(event, 'NameExceedsLimit', length_invalid.format('Guild name', MIN_GUILD_LENGTH, MAX_GUILD_LENGTH))
+    if not utils.check_length(guild_name, MIN_GUILD_NAME_LENGTH, MAX_GUILD_NAME_LENGTH):
+        return format_res_err(event, 'NameExceedsLimit', length_invalid.format('Guild name', MIN_GUILD_NAME_LENGTH, MAX_GUILD_NAME_LENGTH))
     
-    if not utils.check_chars(guild_name, GUILD_CHARACTERS):
+    if not utils.check_chars(guild_name, GUILD_NAME_CHARACTERS):
         return format_res_err(event, 'NameInvalidCharacters', chars_invalid.format('The guild name'))
+
+    """ Descrition checks. """
+    guild_description = guild_description.strip()
+    
+    if not utils.check_length(guild_description, MIN_GUILD_DESCRIPTION_LENGTH, MAX_GUILD_DESCRIPTION_LENGTH):
+        return format_res_err(event, 'DescriptionExceedsLimit', length_invalid.format('Guild description', MIN_GUILD_DESCRIPTION_LENGTH, MAX_GUILD_DESCRIPTION_LENGTH))
+    
+    if not utils.check_chars(guild_description, GUILD_DESCRIPTION_CHARACTERS):
+        return format_res_err(event, 'DescriptionInvalidCharacters', chars_invalid.format('The guild description'))
 
     """ Visibility checks. """
     if not guild_visibility in ['public', 'private']:
@@ -1485,19 +1498,20 @@ def create_guild(event: str, guild_name: str, guild_visibility: bool, guild_max_
     if not utils.check_chars(guild_max_members, digits):
         return format_res_err(event, 'MaxMembersInvalidCharacters', chars_invalid.format('The guild max members key'))
     
-    if not utils.check_length(guild_max_members, 1, MAX_GUILD_MAXMEMBERS):
-        return format_res_err(event, 'MaxMembersExceedsLimit', length_specific_invalid.format('The guild max members value', 1, MAX_GUILD_MAXMEMBERS))
+    if not utils.check_length(guild_max_members, 1, MAX_GUILD_MAX_MEMBERS_NUMBER):
+        return format_res_err(event, 'MaxMembersExceedsLimit', length_specific_invalid.format('The guild max members value', 1, MAX_GUILD_MAX_MEMBERS_NUMBER))
     
     guild_id = utils.gen_id() if not IS_TEST else '123456'
     guild_creator = account.traveller_id
     guild_members = [guild_creator]
     
     if IS_LOCAL:
-        guilds[guild_id] = Guild(guild_id, guild_name, guild_creator, guild_visibility, guild_max_members, guild_members)
+        guilds[guild_id] = Guild(guild_id, guild_name, guild_description, guild_creator, guild_visibility, guild_max_members, guild_members)
         travellers[account.traveller_id].is_in_guild = True
         travellers[account.traveller_id].guild_id = guild_id
     else:
-        mdb.guilds.insert_one({guild_id: {'guildName': guild_name, 'guildCreator': guild_creator,'guildVisibility': guild_visibility,
+        mdb.guilds.insert_one({guild_id: {'guildName': guild_name, 'guildDescription': guild_description,
+                                          'guildCreator': guild_creator,'guildVisibility': guild_visibility,
                                           'guildMaxMembers': guild_max_members, 'guildMembers': guild_members}})
         update_user(account.traveller_id, isInGuild=True, guildId=guild_id)
 
