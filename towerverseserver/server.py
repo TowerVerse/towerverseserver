@@ -1598,7 +1598,7 @@ def leave_guild(event: str, account: Traveller):
     if IS_LOCAL:
         if target_id == target_guild.guild_creator:
             if not IS_TEST:
-                for traveller_id in target_guild:
+                for traveller_id in target_guild.guild_members:
                     travellers[traveller_id].is_in_guild = False
                     travellers[traveller_id].guild_id = ''
                 
