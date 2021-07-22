@@ -175,7 +175,7 @@ guild_owner_events: Dict[str, Callable] = {}
 no_guild_events: Dict[str, Callable] = {}
 
 """ List of all decorators, checked by request_switcher. """
-decorators_list: Set[str] = set({'account', 'no_account', 'guild', 'no_guild'})
+decorators_list: Set[str] = set({'account', 'no_account', 'guild', 'no_guild', 'guild_owner'})
 
 """ List of all tasks to run. """
 tasks_list: Dict[str, Callable] = {}
@@ -538,6 +538,7 @@ async def request_switcher(wss: WebSocketClientProtocol, data: dict):
             AccountOnly: The requested event requires that this IP be associated with an account.
             NoAccountOnly: The requested event requires that this IP NOT be associated with an account.
             GuildOnly: The requested event requires that this account is part of a guild.
+            GuildOwnerOnly: The requested event requires that this account owns the guild it's part of.
             NoGuildOnly: The requested event requires that this account is NOT part of a guild.
     """
 
@@ -849,7 +850,7 @@ def guild(event: Callable):
 
     return wrapper(event)
 
-def guild_check(event: str, wss: WebSocketClientProtocol, account: Traveller) -> bool:
+def guild_check(event: str, account: Traveller) -> bool:
     """ guild decorator check. """
     if not account:
         return
@@ -877,7 +878,7 @@ def guild_owner(event: Callable):
 
     return wrapper(event)
 
-def guild_owner_check(event: str, wss: WebSocketClientProtocol, account: Traveller, guild: Guild) -> bool:
+def guild_owner_check(event: str, account: Traveller, guild: Guild) -> bool:
     """ guild_owner decorator check. """
     if not account or not guild:
         return
@@ -885,8 +886,8 @@ def guild_owner_check(event: str, wss: WebSocketClientProtocol, account: Travell
     if not account.is_in_guild:
         return format_res_err(event, 'GuildOnly', 'You must be part of a guild before using this event.', True)
     
-    if not int(account.traveller_id) == guild.guild_creator:
-        return format_res_err(event, 'GuildOnwerOnly', 'You must be the owner of your guild to use this event.', True)
+    if not account.traveller_id == guild.guild_creator:
+        return format_res_err(event, 'GuildOwnerOnly', 'You must be the owner of your guild to use this event.', True)
     
 def no_guild(event: Callable):
     """Decorator. Marks an event as only accessible while NOT within a guild. Overwrites duplicates.
