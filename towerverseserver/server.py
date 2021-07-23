@@ -175,7 +175,7 @@ guild_owner_events: Dict[str, Callable] = {}
 no_guild_events: Dict[str, Callable] = {}
 
 """ List of all decorators, checked by request_switcher. """
-decorators_list: Set[str] = set({'account', 'no_account', 'guild', 'no_guild', 'guild_owner'})
+decorators_list: Set[str] = set({'account', 'no_account', 'guild', 'guild_owner', 'no_guild'})
 
 """ List of all tasks to run. """
 tasks_list: Dict[str, Callable] = {}
@@ -419,7 +419,8 @@ def get_guilds(pure: bool = False) -> Dict[str, Guild]:
 
         if not pure:
             result_guilds[guild_id] = Guild(guild_id, guild_dict['guildName'], guild_dict['guildDescription'], guild_dict['guildCreator'], 
-                                        guild_dict['guildVisibility'], guild_dict['guildMaxMembers'], guild_dict['guildMembers'])
+                                        guild_dict['guildVisibility'], guild_dict['guildMaxMembers'], guild_dict['guildMembers'],
+                                        guild_dict['guildBannedMembers'])
             
         else:
             guild_dict.update({'mongoId': mongo_id})
@@ -497,7 +498,7 @@ def get_guild_info(guild_id: str) -> dict:
     result_dict = dict(guildId=guild.guild_id, guildName=guild.guild_name,
                        guildDescription=guild.guild_description, guildCreator=guild.guild_creator, 
                        guildVisibility=guild.guild_visibility, guildMaxMembers=guild.guild_max_members,
-                       guildMembers=guild.guild_members)
+                       guildMembers=guild.guild_members, guildBannedMembers=guild.guild_banned_members)
 
     return result_dict
 
@@ -1548,14 +1549,15 @@ def create_guild(event: str, guild_name: str, guild_description: str, guild_visi
     guild_members = [guild_creator]
     
     if IS_LOCAL:
-        guilds[guild_id] = Guild(guild_id, guild_name, guild_description, guild_creator, guild_visibility, guild_max_members, guild_members)
+        guilds[guild_id] = Guild(guild_id, guild_name, guild_description, guild_creator, guild_visibility, guild_max_members, guild_members, [])
         travellers[account.traveller_id].is_in_guild = True
         travellers[account.traveller_id].guild_id = guild_id
         
     else:
         mdb.guilds.insert_one({guild_id: {'guildName': guild_name, 'guildDescription': guild_description,
                                           'guildCreator': guild_creator,'guildVisibility': guild_visibility,
-                                          'guildMaxMembers': guild_max_members, 'guildMembers': guild_members}})
+                                          'guildMaxMembers': guild_max_members, 'guildMembers': guild_members,
+                                          'guildBannedMembers': []}})
         update_user(account.traveller_id, isInGuild=True, guildId=guild_id)
 
     return format_res(event, guildId=guild_id)
@@ -1570,6 +1572,7 @@ def join_guild(event: str, guild_id: str, account: Traveller):
         
         joinGuildNotFound: The guild with the requested ID could not be found.
         joinGuildMaxedOut: The target guild is already at max capacity.
+        joinGuildBanned: You have been banned from this guild.
     """
     
     """ Guild id checks. """
@@ -1580,6 +1583,9 @@ def join_guild(event: str, guild_id: str, account: Traveller):
         
     if int(guild.guild_max_members) == len(guild.guild_members):
         return format_res_err(event, 'MaxedOut', 'This guild is already full.')
+
+    if account.traveller_id in guild.guild_banned_members:
+        return format_res_err(event, 'Banned', 'You have been banned from this guild.')
 
     target_id = account.traveller_id
 
@@ -1682,11 +1688,12 @@ def leave_guild(event: str, account: Traveller, guild: Guild):
         
             update_guild(guild.guild_id, guildMembers=guild.guild_members)
             
-            update_user(guild.traveller_id, isInGuild=False, guildId='')
+            update_user(target_id, isInGuild=False, guildId='')
         
     return format_res(event)
 
 """ Guild owner only """
+
 @account
 @guild_owner
 def change_guild_name(event: str, new_guild_name: str, guild: Guild):
@@ -1778,6 +1785,7 @@ def change_guild_max_members(event: str, new_guild_max_members: str, guild: Guil
         
         changeGuildMaxMembersMaxMembersInvalidCharacters: The guild max members key contains invalid characters.
         changeGuildMaxMembersMaxMembersExceedsLimit: The guild max members key exceeds current length limitations.
+        changeGuildMaxMembersMembersOverflow: The new max members key is less than the current guild members.
     """
     
     """ Max member checks. """
@@ -1786,6 +1794,9 @@ def change_guild_max_members(event: str, new_guild_max_members: str, guild: Guil
     
     if not utils.check_length(new_guild_max_members, 1, MAX_GUILD_MAX_MEMBERS_NUMBER):
         return format_res_err(event, 'MaxMembersExceedsLimit', length_specific_invalid.format('The guild max members value', 1, MAX_GUILD_MAX_MEMBERS_NUMBER))
+    
+    if len(guild.guild_members) > int(guild.guild_max_members):
+        return format_res_err(event, 'MembersOverflow', 'The new max members key is less than the current guild members.')
     
     if IS_LOCAL:
         guilds[guild.guild_id].guild_max_members = new_guild_max_members
@@ -1797,18 +1808,135 @@ def change_guild_max_members(event: str, new_guild_max_members: str, guild: Guil
 
 @account
 @guild_owner
+def kick_guild_member(event: str, member_to_kick_id: str, guild: Guild):
+    """Kicks a guild member.
+
+    Possible Responses:
+        kickGuildMemberReply: The target traveller has been successfully kicked.
+        
+        kickGuildMemberNotFound: The target traveller could not be found.
+        kickGuildMemberSelfKick: You can't kick yourself.
+    """
+    
+    if member_to_kick_id not in guild.guild_members:
+        return format_res_err(event, 'NotFound', 'The target user could not be found in this guild.')
+    
+    if member_to_kick_id == guild.guild_creator and not IS_TEST:
+        return format_res_err(event, 'SelfKick', 'You can\'t kick yourself!')
+    
+    if IS_LOCAL:
+        if not IS_TEST:
+            guilds[guild.guild_id].guild_members.remove(member_to_kick_id)
+            travellers[member_to_kick_id].is_in_guild = False
+            travellers[member_to_kick_id].guild_id = ''
+            
+    else:
+        guild.guild_members.remove(member_to_kick_id)
+    
+        update_guild(guild.guild_id, guildMembers=guild.guild_members)
+        
+        update_user(member_to_kick_id, isInGuild=False, guildId='')
+        
+    return format_res(event)
+    
+@account
+@guild_owner
+def ban_guild_member(event: str, member_to_ban_id: str, guild: Guild):
+    """Bans a guild member.
+
+    Possible Responses:
+        banGuildMemberReply: The target traveller has been successfully banned.
+        
+        banGuildMemberNotFound: The target traveller could not be found.
+        banGuildMemberSelfKick: You can't ban yourself.
+    """
+    
+    if member_to_ban_id not in guild.guild_members:
+        return format_res_err(event, 'NotFound', 'The target user could not be found in this guild.')
+
+    if member_to_ban_id == guild.guild_creator and not IS_TEST:
+        return format_res_err(event, 'SelfBan', 'You can\'t ban yourself!')
+    
+    if IS_LOCAL:
+        guilds[guild.guild_id].guild_banned_members.append(member_to_ban_id)
+        
+        if not IS_TEST:
+            guilds[guild.guild_id].guild_members.remove(member_to_ban_id)
+            travellers[member_to_ban_id].is_in_guild = False
+            travellers[member_to_ban_id].guild_id = ''
+        
+    else:
+        guild.guild_members.remove(member_to_ban_id)
+        guild.guild_banned_members.append(member_to_ban_id)
+    
+        update_guild(guild.guild_id, guildMembers=guild.guild_members, guildBannedMembers=guild.guild_banned_members)
+        
+        update_user(member_to_ban_id, isInGuild=False, guildId='')
+        
+    return format_res(event)
+
+@account
+@guild_owner
+def unban_guild_member(event: str, member_to_unban_id: str, guild: Guild):
+    """Unbans a previously banned guild member.
+
+    Possible Responses:
+        unbanGuildMemberReply: The target traveller has been successfully unbanned.
+        
+        unbanGuildMemberNotFound: The target traveller could not be found.
+        unbanGuildMemberSelfKick: You can't unban yourself.
+    """
+    
+    if member_to_unban_id not in guild.guild_banned_members:
+        return format_res_err(event, 'NotFound', 'The target user could not be found in the banned members of this guild.')
+    
+    if member_to_unban_id == guild.guild_creator and not IS_TEST:
+        return format_res_err(event, 'SelfUnban', 'You can\'t unban yourself!')
+    
+    if IS_LOCAL:
+        guilds[guild.guild_id].guild_banned_members.remove(member_to_unban_id)
+        
+    else:
+        guild.guild_banned_members.remove(member_to_unban_id)
+        update_guild(guild.guild_id, guildBannedMembers=guild.guild_banned_members)
+        
+    return format_res(event)
+
+@account
+@guild_owner
+def clear_banned_guild_members(event: str, guild: Guild):
+    """Clears all previously banned guild members.
+
+    Possible Responses:
+        clearBannedGuildMembersReply: The banned members list has been successfully cleared.
+    """
+    
+    if IS_LOCAL:
+        guilds[guild.guild_id].guild_banned_members.clear()
+        
+    else:
+        update_guild(guild.guild_id, guildBannedMembers=[])
+    
+    return format_res(event)
+
+@account
+@guild_owner
 def transfer_guild_ownership(event: str, new_guild_owner_id: str, guild: Guild):
     """Transfers guild ownership to an existing member.
 
     Possible Responses:
         transferGuildOwnershipReply: The guild's onwership has been transferred successfully.
 
+        transferGuildOwnershipAlreadyOwner: You can't set the owner as the owner!
         transferGuildOwnershipNotFound: The target traveller could not be found.
     """
     
     """ Member checks. """
     if new_guild_owner_id not in guild.guild_members:
         return format_res_err(event, 'NotFound', 'The target user could not be found in this guild.')
+    
+    if new_guild_owner_id == guild.guild_creator and not IS_TEST:
+        return format_res_err(event, 'AlreadyOwner', 'You can\'t become the owner again!')
     
     if IS_LOCAL:
         guilds[guild.guild_id].guild_creator = new_guild_owner_id

@@ -46,6 +46,7 @@ class Guild():
     guild_visibility: str
     guild_max_members: str
     guild_members: List[str] = field(default_factory=list)
+    guild_banned_members: List[str] = field(default_factory=list)
 
 @dataclass(frozen=False)
 class Tower():
