@@ -236,34 +236,6 @@ def has_account(request_ip: str) -> bool:
     """
     return request_ip in wss_accounts
 
-def get_users(pure: bool = False) -> Dict[str, Traveller]:
-    """Returns the users which are created. Only for the database version. 
-
-    Args:
-        pure (bool): Whether or not Traveller objects should be returned otherwise the raw data will be.
-
-    Returns:
-        Dict[str, Traveller]: The users dictionary.
-    """
-
-    result_users: Dict[str, Traveller] = {}
-
-    for cursor in mdb.users.find({}):
-        user_dict = list(cursor.values())[1]
-        user_id = list(cursor.keys())[1]
-
-        mongo_id = str(cursor['_id']).split('\'')[0]
-
-        if not pure:
-            result_users[user_id] = Traveller(user_id, user_dict['travellerName'], user_dict['travellerEmail'],
-                                            user_dict['travellerPassword'], user_dict['hasChangedName'], user_dict['isInGuild'],
-                                            user_dict['guildId'])
-        else:
-            user_dict.update({'mongoId': mongo_id})
-            result_users[user_id] = user_dict
-
-    return result_users
-
 def get_user(traveller_id: str, check_in_extra: bool = False) -> Traveller:
     """Finds a user by id.
 
@@ -276,15 +248,8 @@ def get_user(traveller_id: str, check_in_extra: bool = False) -> Traveller:
     """
     traveller: Traveller = None
 
-    if IS_LOCAL:
-        if traveller_id in travellers:
-            traveller = travellers[traveller_id]
-
-    else:
-        temp_users = get_users()
-
-        if traveller_id in temp_users:
-            traveller = temp_users[traveller_id]
+    if traveller_id in travellers:
+        traveller = travellers[traveller_id]
 
     if check_in_extra:
         if traveller_id in accounts_to_create:
@@ -304,14 +269,9 @@ def get_user_by_email(traveller_email: str, check_in_extra: bool = False) -> Tra
     """
     traveller: Traveller = None
 
-    if IS_LOCAL:
-        for key, item in travellers.items():
-            if item.traveller_email == traveller_email:
-                traveller = get_user(key)
-    else:
-        for key, item in get_users().items():
-            if item.traveller_email == traveller_email:
-                traveller = get_user(key)
+    for key, item in travellers.items():
+        if item.traveller_email == traveller_email:
+            traveller = get_user(key)
 
     if check_in_extra:
         for key, item in accounts_to_create.items():
@@ -319,36 +279,6 @@ def get_user_by_email(traveller_email: str, check_in_extra: bool = False) -> Tra
                 traveller = get_user(key, True)
 
     return traveller
-
-def update_user(user_id: str, **kwargs) -> Traveller:
-    """Updates a user's db keys, according to what is passed. If the key doesn't exist, it is created otherwise it's updated. 
-    
-    Args:
-        user_id (int): The traveller's id.
-    
-    Returns:
-        Traveller: The updated Traveller instance.
-    """
-    users = get_users(True)
-
-    if not user_id in users:
-        log.error('Invalid id has been passed to update_user, aborting operation')
-        return
-
-    traveller = users[user_id]
-
-    update_dict: Dict[str, str] = {'$set': {user_id: {}}}
-
-    for key, value in kwargs.items():
-        update_dict['$set'][user_id][key] = value
-
-    for key, value in traveller.items():
-        if key not in kwargs.keys() and key != 'mongoId':
-            update_dict['$set'][user_id][key] = value
-
-    mdb.users.find_one_and_update({'_id': ObjectId(traveller['mongoId'])}, update_dict)
-
-    return get_user(user_id)
 
 async def send_email(to: str, title: str, content: List[str]) -> None:
     """Sends an email, asynchronously.
@@ -389,44 +319,12 @@ def is_username_taken(traveller_name: str) -> bool:
 
     is_name_taken = False
 
-    if IS_LOCAL:
-        is_name_taken = len([traveller for traveller in travellers.values() if traveller.traveller_name == traveller_name]) > 0
-
-    else:
-        is_name_taken = len([traveller for traveller in get_users().values() if traveller.traveller_name == traveller_name]) > 0
+    is_name_taken = len([traveller for traveller in travellers.values() if traveller.traveller_name == traveller_name]) > 0
 
     if not is_name_taken:
         is_name_taken = len([traveller for traveller in accounts_to_create.values() if traveller.traveller_name == traveller_name]) > 0
 
     return is_name_taken
-
-def get_guilds(pure: bool = False) -> Dict[str, Guild]:
-    """Returns created guilds. Only for the database version.
-
-    Args:
-        pure (bool): Whether or not Guild objects should be returned otherwise the raw data will be.
-
-    Returns:
-        Dict[str, Guild]: The guilds dictionary.
-    """
-    result_guilds: Dict[str, Guild] = {}
-    
-    for cursor in mdb.guilds.find({}):
-        guild_dict = list(cursor.values())[1]
-        guild_id = list(cursor.keys())[1]
-
-        mongo_id = str(cursor['_id']).split('\'')[0]
-
-        if not pure:
-            result_guilds[guild_id] = Guild(guild_id, guild_dict['guildName'], guild_dict['guildDescription'], guild_dict['guildCreator'], 
-                                        guild_dict['guildVisibility'], guild_dict['guildMaxMembers'], guild_dict['guildMembers'],
-                                        guild_dict['guildBannedMembers'])
-            
-        else:
-            guild_dict.update({'mongoId': mongo_id})
-            result_guilds[guild_id] = guild_dict
-
-    return result_guilds
 
 def get_guild(guild_id: str) -> Guild:
     """Gets a guild by id.
@@ -439,47 +337,10 @@ def get_guild(guild_id: str) -> Guild:
     """    
     guild: Guild = None
 
-    if IS_LOCAL:
-        if guild_id in guilds:
-            guild = guilds[guild_id]
-            
-    else:
-        temp_guilds = get_guilds()
-
-        if guild_id in temp_guilds:
-            guild = temp_guilds[guild_id]
+    if guild_id in guilds:
+        guild = guilds[guild_id]
             
     return guild
-
-def update_guild(guild_id: str, **kwargs) -> Guild:
-    """Updates a guild's db keys, according to what is passed. If the key doesn't exist, it is created otherwise it's updated. 
-    
-    Args:
-        guild_id (int): The guild's id.
-    
-    Returns:
-        Guild: The updated Guild instance.
-    """
-    guilds = get_guilds(True)
-
-    if not guild_id in guilds:
-        log.error('Invalid id has been passed to update_guild, aborting operation.')
-        return
-
-    guild = guilds[guild_id]
-
-    update_dict: Dict[str, str] = {'$set': {guild_id: {}}}
-
-    for key, value in kwargs.items():
-        update_dict['$set'][guild_id][key] = value
-
-    for key, value in guild.items():
-        if key not in kwargs.keys() and key != 'mongoId':
-            update_dict['$set'][guild_id][key] = value
-
-    mdb.guilds.find_one_and_update({'_id': ObjectId(guild['mongoId'])}, update_dict)
-
-    return get_user(guild_id)
 
 def get_guild_info(guild_id: str) -> dict:
     """Returns guild info.
@@ -733,6 +594,23 @@ def setup_mongo(mongodb_username: str, mongodb_password: str) -> None:
         """ Prevent cold-booting MongoDB requests. """
         mdb.some_random_collection.count_documents({})
 
+        # Wrapper here aswell
+        for cursor in mdb.users.find({}):
+            traveller_mongo_id = cursor['_id']
+            traveller_id = list(cursor.keys())[1]
+        
+            del cursor['_id']
+            
+            travellers[traveller_id] = Traveller(**{utils.transform_to_call(key): value for key, value in cursor[traveller_id].items()}, mongo_id=traveller_mongo_id)
+
+        for cursor in mdb.guilds.find({}):
+            guild_mongo_id = cursor['_id']
+            guild_id = list(cursor.keys())[1]
+            
+            del cursor['_id']
+            
+            guilds[guild_id] = Guild(**{utils.transform_to_call(key): value for key, value in cursor[guild_id].items()}, mongo_id=guild_mongo_id)
+            
         log.info(f'Successfully setup MongoDB in {int(round(time() - start, 2) * 1000)} ms.')
     
     except OperationFailure:
@@ -986,7 +864,7 @@ def create_traveller(event: str, traveller_name: str, traveller_email: str, trav
         traveller_verification = '123456'
 
     accounts_to_create[traveller_email] = TempTraveller(traveller_id, traveller_name, traveller_email,
-                                                        hashed_password, False, False, '', traveller_verification)
+                                                        hashed_password, False, False, '', None, traveller_verification)
 
     return format_res(event, travellerId=traveller_id)
 
@@ -1030,8 +908,7 @@ def login_traveller(event: str, traveller_email: str, traveller_password: str, w
     if traveller_password_checks:
         return format_res_err(event, traveller_password_checks[0], traveller_password_checks[1])
 
-    if not checkpw(bytes(traveller_password, encoding='ascii'), travellers[traveller.traveller_id].traveller_password if IS_LOCAL
-                                                            else get_users()[traveller.traveller_id].traveller_password):
+    if not checkpw(bytes(traveller_password, encoding='ascii'), travellers[traveller.traveller_id].traveller_password):
         return format_res_err(event, 'InvalidPassword', 'The password is invalid.')
 
     """ Login to the account. """
@@ -1078,14 +955,9 @@ def verify_traveller(event: str, traveller_email: str, traveller_code: str, wss:
         
     target_acc = accounts_to_create[traveller_email]
     
-    if IS_LOCAL:
-        travellers[target_acc.traveller_id] = Traveller(target_acc.traveller_id, target_acc.traveller_name, target_acc.traveller_email,
-                                                        target_acc.traveller_password, target_acc.has_changed_name, target_acc.is_in_guild,
-                                                        target_acc.guild_id)
-    else:
-        mdb.users.insert_one({target_acc.traveller_id: {'travellerName': target_acc.traveller_name, 'travellerEmail': target_acc.traveller_email,
-                                                        'travellerPassword': target_acc.traveller_password, 'hasChangedName': target_acc.has_changed_name,
-                                                        'isInGuild': target_acc.is_in_guild, 'guildId': target_acc.guild_id}})
+    travellers[target_acc.traveller_id] = Traveller(target_acc.traveller_id, target_acc.traveller_name, target_acc.traveller_email,
+                                                    target_acc.traveller_password, target_acc.has_changed_name, target_acc.is_in_guild,
+                                                    target_acc.guild_id, None)
     
     wss_accounts[wss.remote_address[0]] = target_acc.traveller_id
     
@@ -1221,10 +1093,7 @@ def reset_traveller_password_final(event: str, traveller_email: str, traveller_p
 
     new_hashed_password = hashpw(bytes(new_traveller_password, 'ascii'), gensalt(rounds=13))
 
-    if IS_LOCAL:
-        travellers[target_acc.traveller_id].traveller_password = new_hashed_password
-    else:
-        update_user(target_acc.traveller_id, travellerPassword=new_hashed_password)
+    travellers[target_acc.traveller_id].traveller_password = new_hashed_password
 
     if not IS_TEST:
         loop.create_task(send_email(target_acc.traveller_email, email_title.format('password changed'), [email_content_changed.format('password')]))
@@ -1267,7 +1136,7 @@ def fetch_travellers(event: str):
     Possible Responses:
         fetchTravellersReply: The existing travellers' IDs have been successfully fetched.
     """
-    return format_res(event, travellerIds=[id for id in travellers] if IS_LOCAL else [id for id in get_users()])
+    return format_res(event, travellerIds=[id for id in travellers])
 
 @account
 def total_travellers(event: str):
@@ -1276,7 +1145,7 @@ def total_travellers(event: str):
     Possible Responses:
         totalTravellersReply: The number of existing travellers has been successfully fetched.
     """
-    return format_res(event, totalTravellers=len(travellers) if IS_LOCAL else len(get_users()))
+    return format_res(event, totalTravellers=len(travellers))
 
 @account
 def online_travellers(event: str):
@@ -1288,11 +1157,9 @@ def online_travellers(event: str):
 
     result_data = dict(onlineTravellers=len(wss_accounts))
 
-    if IS_LOCAL:
-        online_travellers_ids = [id for id in travellers if id in wss_accounts.values()]
 
-    else:
-        online_travellers_ids = [id for id in get_users() if id in wss_accounts.values()]
+    online_travellers_ids = [id for id in travellers if id in wss_accounts.values()]
+
 
     result_data['onlineTravellersIds'] = online_travellers_ids
 
@@ -1328,10 +1195,7 @@ def reset_traveller_password_account(event: str, old_traveller_password: str, ne
     """ Reset password and send email. """
     new_hashed_password = hashpw(bytes(new_traveller_password, 'ascii'), gensalt(rounds=13))
 
-    if IS_LOCAL:
-        travellers[account.traveller_id].traveller_password = new_hashed_password
-    else:
-        update_user(account.traveller_id, travellerPassword=new_hashed_password)
+    travellers[account.traveller_id].traveller_password = new_hashed_password
 
     if not IS_TEST:
         loop.create_task(send_email(account.traveller_email, email_title.format('password changed'), [email_content_changed.format('password')]))
@@ -1416,10 +1280,7 @@ def reset_traveller_email_final(event: str, traveller_email_code: str, account: 
         
     old_traveller_email = account.traveller_email
 
-    if IS_LOCAL:
-        travellers[account.traveller_id].traveller_email = email_change_request_codes[account.traveller_id][1]
-    else:
-        update_user(account.traveller_id, travellerEmail=email_change_request_codes[account.traveller_id][1])
+    travellers[account.traveller_id].traveller_email = email_change_request_codes[account.traveller_id][1]
 
     if not IS_TEST:
         loop.create_task(send_email(old_traveller_email, email_title.format('email changed'), [email_content_changed.format('email')]))
@@ -1472,21 +1333,14 @@ def reset_traveller_name(event: str, traveller_password: str, new_traveller_name
 
     has_changed_name = False
 
-    if IS_LOCAL:
-        has_changed_name = travellers[account.traveller_id].has_changed_name
 
-    else:
-        has_changed_name = get_users(True)[account.traveller_id]['hasChangedName']
+    has_changed_name = travellers[account.traveller_id].has_changed_name
 
     if has_changed_name:
         return format_res_err(event, 'NameAlreadyChanged', 'The traveller\'s name has already been changed once.')
 
-    if IS_LOCAL:
-        travellers[account.traveller_id].traveller_name = new_traveller_name
-        travellers[account.traveller_id].has_changed_name = True
-    
-    else:
-        update_user(account.traveller_id, travellerName=new_traveller_name, hasChangedName=True)
+    travellers[account.traveller_id].traveller_name = new_traveller_name
+    travellers[account.traveller_id].has_changed_name = True
 
     if not IS_TEST:
         loop.create_task(send_email(account.traveller_email, email_title.format('username changed'), [f"{email_content_changed.format('username')}"]))
@@ -1548,17 +1402,9 @@ def create_guild(event: str, guild_name: str, guild_description: str, guild_visi
     guild_creator = account.traveller_id
     guild_members = [guild_creator]
     
-    if IS_LOCAL:
-        guilds[guild_id] = Guild(guild_id, guild_name, guild_description, guild_creator, guild_visibility, guild_max_members, guild_members, [])
-        travellers[account.traveller_id].is_in_guild = True
-        travellers[account.traveller_id].guild_id = guild_id
-        
-    else:
-        mdb.guilds.insert_one({guild_id: {'guildName': guild_name, 'guildDescription': guild_description,
-                                          'guildCreator': guild_creator,'guildVisibility': guild_visibility,
-                                          'guildMaxMembers': guild_max_members, 'guildMembers': guild_members,
-                                          'guildBannedMembers': []}})
-        update_user(account.traveller_id, isInGuild=True, guildId=guild_id)
+    guilds[guild_id] = Guild(guild_id, guild_name, guild_description, guild_creator, guild_visibility, guild_max_members, guild_members, [], None)
+    travellers[account.traveller_id].is_in_guild = True
+    travellers[account.traveller_id].guild_id = guild_id
 
     return format_res(event, guildId=guild_id)
 
@@ -1589,15 +1435,9 @@ def join_guild(event: str, guild_id: str, account: Traveller):
 
     target_id = account.traveller_id
 
-    if IS_LOCAL:
-        guilds[guild_id].guild_members.append(target_id)
-        travellers[target_id].is_in_guild = True
-        travellers[target_id].guild_id = guild_id
-        
-    else:
-        guild.guild_members.append(target_id)
-        update_guild(guild_id, guildMembers=guild.guild_members)
-        update_user(target_id, isInGuild=True, guildId=guild_id)
+    guilds[guild_id].guild_members.append(target_id)
+    travellers[target_id].is_in_guild = True
+    travellers[target_id].guild_id = guild_id
 
     return format_res(event, guildId=guild_id)
 
@@ -1625,13 +1465,9 @@ def fetch_guilds(event: str):
         fetchGuildsReply: The existing guilds' IDs have been successfully fetched.
     """
     guild_ids = []
-    
-    if IS_LOCAL:
-        guild_ids = [guild.guild_id for guild in guilds.values() if guild.guild_visibility == 'public']
-    
-    else:
-        guild_ids = [guild.guild_id for guild in get_guilds().values() if guild.guild_visibility == 'public']    
-    
+
+    guild_ids = [guild.guild_id for guild in guilds.values() if guild.guild_visibility == 'public']
+
     return format_res(event, guildIds=guild_ids)
 
 """ Guild only """
@@ -1657,38 +1493,23 @@ def leave_guild(event: str, account: Traveller, guild: Guild):
     
     target_id = account.traveller_id
     
-    if IS_LOCAL:
-        if target_id == guild.guild_creator:
-            if not IS_TEST:
-                for traveller_id in guild.guild_members:
-                    travellers[traveller_id].is_in_guild = False
-                    travellers[traveller_id].guild_id = ''
-                
-                del guilds[guild.guild_id]
+    if target_id == guild.guild_creator:
+        if not IS_TEST:
+            for traveller_id in guild.guild_members:
+                travellers[traveller_id].is_in_guild = False
+                travellers[traveller_id].guild_id = ''
             
-        else:
-            guilds[guild.guild_id].guild_members.remove(target_id)
-
-            travellers[target_id].is_in_guild = False
-            travellers[target_id].guild_id = ''
-            
-        if IS_TEST:
-            travellers[target_id].is_in_guild = False
-            travellers[target_id].guild_id = ''
+            del guilds[guild.guild_id]
         
     else:
-        if target_id == guild.guild_creator:
-            for traveller_id in guild.guild_members:
-                update_user(traveller_id, isInGuild=False, guildId='')
-                
-            mdb.guilds.find_one_and_delete({'_id': ObjectId(get_guilds(True)[guild.guild_id]['mongoId'])})
-            
-        else:
-            guild.guild_members.remove(target_id)
+        guilds[guild.guild_id].guild_members.remove(target_id)
+
+        travellers[target_id].is_in_guild = False
+        travellers[target_id].guild_id = ''
         
-            update_guild(guild.guild_id, guildMembers=guild.guild_members)
-            
-            update_user(target_id, isInGuild=False, guildId='')
+    if IS_TEST:
+        travellers[target_id].is_in_guild = False
+        travellers[target_id].guild_id = ''
         
     return format_res(event)
 
@@ -1715,12 +1536,8 @@ def change_guild_name(event: str, new_guild_name: str, guild: Guild):
     if not utils.check_chars(new_guild_name, GUILD_NAME_CHARACTERS):
         return format_res_err(event, 'NameInvalidCharacters', chars_invalid.format('The guild name'))
     
-    if IS_LOCAL:
-        guilds[guild.guild_id].guild_name = new_guild_name
-        
-    else:
-        update_guild(guild.guild_id, guildName=new_guild_name)
-        
+    guilds[guild.guild_id].guild_name = new_guild_name
+
     return format_res(event)
 
 @account
@@ -1744,12 +1561,8 @@ def change_guild_description(event: str, new_guild_description: str, guild: Guil
     if not utils.check_chars(new_guild_description, GUILD_DESCRIPTION_CHARACTERS):
         return format_res_err(event, 'DescriptionInvalidCharacters', chars_invalid.format('The guild description'))
     
-    if IS_LOCAL:
-        guilds[guild.guild_id].guild_description = new_guild_description
-        
-    else:
-        update_guild(guild.guild_id, guildDescription=new_guild_description)
-        
+    guilds[guild.guild_id].guild_description = new_guild_description
+
     return format_res(event)
 
 @account
@@ -1767,11 +1580,7 @@ def change_guild_visibility(event: str, new_guild_visibility: str, guild: Guild)
     if not new_guild_visibility in ['public', 'private']:
         return format_res_err(event, 'VisibilityInvalid', argument_invalid_type.format('Guild visibility', 'public or private'))
 
-    if IS_LOCAL:
-        guilds[guild.guild_id].guild_visibility = new_guild_visibility
-        
-    else:
-        update_guild(guild.guild_id, guildVisibility=new_guild_visibility)
+    guilds[guild.guild_id].guild_visibility = new_guild_visibility
         
     return format_res(event)
 
@@ -1797,12 +1606,8 @@ def change_guild_max_members(event: str, new_guild_max_members: str, guild: Guil
     
     if len(guild.guild_members) > int(guild.guild_max_members):
         return format_res_err(event, 'MembersOverflow', 'The new max members key is less than the current guild members.')
-    
-    if IS_LOCAL:
-        guilds[guild.guild_id].guild_max_members = new_guild_max_members
-        
-    else:
-        update_guild(guild.guild_id, guildMaxMembers=new_guild_max_members)
+
+    guilds[guild.guild_id].guild_max_members = new_guild_max_members
         
     return format_res(event)
 
@@ -1824,18 +1629,10 @@ def kick_guild_member(event: str, member_to_kick_id: str, guild: Guild):
     if member_to_kick_id == guild.guild_creator and not IS_TEST:
         return format_res_err(event, 'SelfKick', 'You can\'t kick yourself!')
     
-    if IS_LOCAL:
-        if not IS_TEST:
-            guilds[guild.guild_id].guild_members.remove(member_to_kick_id)
-            travellers[member_to_kick_id].is_in_guild = False
-            travellers[member_to_kick_id].guild_id = ''
-            
-    else:
-        guild.guild_members.remove(member_to_kick_id)
-    
-        update_guild(guild.guild_id, guildMembers=guild.guild_members)
-        
-        update_user(member_to_kick_id, isInGuild=False, guildId='')
+    if not IS_TEST:
+        guilds[guild.guild_id].guild_members.remove(member_to_kick_id)
+        travellers[member_to_kick_id].is_in_guild = False
+        travellers[member_to_kick_id].guild_id = ''
         
     return format_res(event)
     
@@ -1856,22 +1653,11 @@ def ban_guild_member(event: str, member_to_ban_id: str, guild: Guild):
 
     if member_to_ban_id == guild.guild_creator and not IS_TEST:
         return format_res_err(event, 'SelfBan', 'You can\'t ban yourself!')
-    
-    if IS_LOCAL:
-        guilds[guild.guild_id].guild_banned_members.append(member_to_ban_id)
-        
-        if not IS_TEST:
-            guilds[guild.guild_id].guild_members.remove(member_to_ban_id)
-            travellers[member_to_ban_id].is_in_guild = False
-            travellers[member_to_ban_id].guild_id = ''
-        
-    else:
-        guild.guild_members.remove(member_to_ban_id)
-        guild.guild_banned_members.append(member_to_ban_id)
-    
-        update_guild(guild.guild_id, guildMembers=guild.guild_members, guildBannedMembers=guild.guild_banned_members)
-        
-        update_user(member_to_ban_id, isInGuild=False, guildId='')
+
+    if not IS_TEST:
+        guilds[guild.guild_id].guild_members.remove(member_to_ban_id)
+        travellers[member_to_ban_id].is_in_guild = False
+        travellers[member_to_ban_id].guild_id = ''
         
     return format_res(event)
 
@@ -1887,18 +1673,14 @@ def unban_guild_member(event: str, member_to_unban_id: str, guild: Guild):
         unbanGuildMemberSelfKick: You can't unban yourself.
     """
     
-    if member_to_unban_id not in guild.guild_banned_members:
+    if member_to_unban_id not in guild.guild_banned_members and not IS_TEST:
         return format_res_err(event, 'NotFound', 'The target user could not be found in the banned members of this guild.')
     
     if member_to_unban_id == guild.guild_creator and not IS_TEST:
         return format_res_err(event, 'SelfUnban', 'You can\'t unban yourself!')
     
-    if IS_LOCAL:
+    if not IS_TEST:
         guilds[guild.guild_id].guild_banned_members.remove(member_to_unban_id)
-        
-    else:
-        guild.guild_banned_members.remove(member_to_unban_id)
-        update_guild(guild.guild_id, guildBannedMembers=guild.guild_banned_members)
         
     return format_res(event)
 
@@ -1911,11 +1693,7 @@ def clear_banned_guild_members(event: str, guild: Guild):
         clearBannedGuildMembersReply: The banned members list has been successfully cleared.
     """
     
-    if IS_LOCAL:
-        guilds[guild.guild_id].guild_banned_members.clear()
-        
-    else:
-        update_guild(guild.guild_id, guildBannedMembers=[])
+    guilds[guild.guild_id].guild_banned_members.clear()
     
     return format_res(event)
 
@@ -1937,12 +1715,8 @@ def transfer_guild_ownership(event: str, new_guild_owner_id: str, guild: Guild):
     
     if new_guild_owner_id == guild.guild_creator and not IS_TEST:
         return format_res_err(event, 'AlreadyOwner', 'You can\'t become the owner again!')
-    
-    if IS_LOCAL:
-        guilds[guild.guild_id].guild_creator = new_guild_owner_id
-        
-    else:
-        update_guild(guild.guild_id, guildCreator=new_guild_owner_id)
+
+    guilds[guild.guild_id].guild_creator = new_guild_owner_id
         
     return format_res(event)
 
@@ -1982,6 +1756,70 @@ async def cleanup_temp_accounts() -> None:
         accounts_to_create.clear()
         await asyncio.sleep(TEMP_ACCOUNT_CLEANUP_INTERVAL)
 
+@task
+async def update_local_to_db() -> None:
+    """ Saves local variables to MongoDB, periodically. """
+        
+    while True:
+        push_local_to_db()
+        
+        await asyncio.sleep(CLOUD_SAVE_LOCALS_INTERVAL)
+
+""" Other """
+def push_local_to_db() -> None:
+    if IS_LOCAL or IS_TEST:
+        return
+
+    if not len(travellers) == 0:
+        for _, traveller_object in travellers.items():
+            update_dict: Dict[str, Traveller] = {traveller_object.traveller_id: {}}
+            
+            for key, value in traveller_object.__dict__.items():
+                if key == 'mongo_id':
+                    continue
+                    
+                update_dict[traveller_object.traveller_id][utils.transform_to_original(key)] = value
+                
+            if traveller_object.mongo_id:
+                mdb.users.update_one({'_id': ObjectId(traveller_object.mongo_id)}, {'$set': update_dict}, upsert=True)
+            else:
+                travellers[traveller_object.traveller_id].mongo_id = mdb.users.insert_one(update_dict).inserted_id
+            
+    else:
+        log.warning(update_local_empty.format('travellers'))
+        
+    if not len(guilds) == 0:
+        for _, guild_object in guilds.items():
+            update_dict: Dict[str, Guild] = {guild_object.guild_id: {}}
+            
+            for key, value in guild_object.__dict__.items():
+                if key == 'mongo_id':
+                    continue
+                    
+                update_dict[guild_object.guild_id][utils.transform_to_original(key)] = value
+            
+            if guild_object.mongo_id:
+                mdb.guilds.update_one({'_id': ObjectId(guild_object.mongo_id)}, {'$set': update_dict}, upsert=True)
+            else:
+                guilds[guild_object.guild_id].mongo_id = mdb.guilds.insert_one(update_dict).inserted_id
+            
+        for cursor in mdb.guilds.find({}):
+            guild_found = False
+            
+            for guild in guilds.values():
+                if guild.mongo_id == cursor['_id']:
+                    guild_found = True
+                    break
+
+            if not guild_found:
+                mdb.guilds.delete_one({'_id': ObjectId(cursor['_id'])})
+            
+    else:
+        log.warning(update_local_empty.format('guilds'))
+    
+    if not len(travellers) == 0 or not len(guilds) == 0:
+        log.info('Successfully saved local variables to MongoDB.')
+
 """ Entry point. """
 if __name__ == '__main__':
 
@@ -2009,7 +1847,7 @@ if __name__ == '__main__':
                 exit()
             else:
                 setup_mongo(environ['TOWERVERSE_MONGODB_USERNAME'], environ['TOWERVERSE_MONGODB_PASSWORD'])
-
+        
     port = environ.get('PORT', 5000)
 
     start_server = ws_serve(serve, '0.0.0.0', port)
@@ -2032,7 +1870,12 @@ if __name__ == '__main__':
 
     try:
         loop.run_forever()
+        
     except KeyboardInterrupt:
         exit()
+        
     except Exception as e:
         utils.log_error_and_exit('Server shut down due to an error', e)
+
+    finally:
+        push_local_to_db()

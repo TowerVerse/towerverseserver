@@ -34,6 +34,9 @@ IP_ACCOUNT_CLEANUP_INTERVAL = 60 * 60 * 24 # every day
 """ Seconds between resetting accounts which aren't verified. """
 TEMP_ACCOUNT_CLEANUP_INTERVAL = 60 * 60 * 24 * 7 # every week
 
+""" Seconds between saving local variables to the database. """
+CLOUD_SAVE_LOCALS_INTERVAL = 60 * 10 # every 10 minutes
+
 """ Account-related. """
 USERNAME_CHARACTERS = f'{ascii_letters}{digits}!^*'
 MIN_USERNAME_LENGTH = 3
@@ -78,3 +81,4 @@ email_content_code = 'This is your TowerVerse {} code: '
 email_content_changed = 'Your Towerverse {} has been changed successfully.'
 strf_format = '%d/%m/%Y %H:%M'
 wrapper_alr_exists = 'The {} named "{}" already exists, aborting operation.'
+update_local_empty = 'The {} dictionary is empty, skipping database save for this specific dictionary.'

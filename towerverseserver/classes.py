@@ -30,6 +30,7 @@ class Traveller():
     has_changed_name: bool
     is_in_guild: bool
     guild_id: str
+    mongo_id: str
 
 @dataclass(frozen=False)
 class TempTraveller(Traveller):
@@ -45,8 +46,9 @@ class Guild():
     guild_creator: str
     guild_visibility: str
     guild_max_members: str
-    guild_members: List[str] = field(default_factory=list)
-    guild_banned_members: List[str] = field(default_factory=list)
+    guild_members: List[str]
+    guild_banned_members: List[str]
+    mongo_id: str
 
 @dataclass(frozen=False)
 class Tower():
