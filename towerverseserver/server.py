@@ -41,8 +41,8 @@ parser_args = parser.parse_args()
 """ BUILT-IN MODULES """
 import asyncio
 
-""" For hosting. """
-from os import environ
+""" For hosting, killing processes. """
+from os import environ, getpid, kill
 
 """ Formatting responses. """
 from json import dumps, loads
@@ -66,6 +66,9 @@ from uuid import uuid4
 """ Logging levels. """
 from logging import StreamHandler, getLogger
 from time import strftime
+
+""" Handling signals. """
+from signal import SIGINT, SIGKILL, SIGTERM, signal
 
 """ 3RD-PARTY MODULES """
 
@@ -1820,6 +1823,21 @@ def push_local_to_db() -> None:
     if not len(travellers) == 0 or not len(guilds) == 0:
         log.info('Successfully saved local variables to MongoDB.')
 
+class SignalHandlerClass():
+    """ Used to handle sudden signal shutdowns to update the database. """
+    def __init__(self) -> None:
+        self.signal_passed = False
+        
+        signal(SIGINT, self.sigterm_handler)
+        signal(SIGTERM, self.sigterm_handler)
+    
+    def sigterm_handler(self, *args, **kwargs) -> None:
+        push_local_to_db()
+        
+        kill(getpid(), SIGKILL)
+        
+        self.signal_passed = True
+        
 """ Entry point. """
 if __name__ == '__main__':
 
@@ -1869,7 +1887,13 @@ if __name__ == '__main__':
         log.info(f'Server running at port: {port}')
 
     try:
-        loop.run_forever()
+        sigterm_handler = SignalHandlerClass()
+        
+        while not sigterm_handler.signal_passed:
+            loop.run_forever()
+            
+        else:
+            exit()
         
     except KeyboardInterrupt:
         exit()
