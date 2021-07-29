@@ -12,7 +12,7 @@ File description:
 Extra info:
     Run this file with the command line argument -h to see available options.
 
-    For the production server set the following environmental variables for MongoDB and Email functions(emails should be enabled for local development aswell):
+    For the production server set the following environmental variables in your .env file or your system's environmental variables for MongoDB and email functions(emails should be enabled for --local development aswell):
 
         TOWERVERSE_EMAIL_ADDRESS: The email address to send emails with,
         TOWERVERSE_EMAIL_PASSWORD: The password of the email address,
@@ -71,6 +71,9 @@ from time import strftime
 from signal import SIGINT, SIGKILL, SIGTERM, signal
 
 """ 3RD-PARTY MODULES """
+
+""" Dotenv to faciitate setting up email and MongoDB. """
+from dotenv import load_dotenv
 
 """ The main way of communicating. """
 from websockets import serve as ws_serve
@@ -1840,7 +1843,6 @@ class SignalHandlerClass():
         
 """ Entry point. """
 if __name__ == '__main__':
-
     server_type = 'PRODUCTION'
     
     if IS_LOCAL:
@@ -1850,6 +1852,8 @@ if __name__ == '__main__':
         server_type = 'TEST'
         
     log.info(f'Server type: {server_type}')
+
+    load_dotenv()
 
     if not IS_TEST:
         if not 'TOWERVERSE_EMAIL_ADDRESS' in environ or not 'TOWERVERSE_EMAIL_PASSWORD' in environ:
