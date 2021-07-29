@@ -12,7 +12,7 @@ File description:
 Extra info:
     Run this file with the command line argument -h to see available options.
 
-    For the production server set the following environmental variables for MongoDB and Email functions(emails should be enabled for local development aswell):
+    For the production server set the following environmental variables in your .env file for MongoDB and Email functions(emails should be enabled for local development aswell):
 
         TOWERVERSE_EMAIL_ADDRESS: The email address to send emails with,
         TOWERVERSE_EMAIL_PASSWORD: The password of the email address,
@@ -91,6 +91,9 @@ if not parser_args.test:
 """ Email verification and more. """
 if not parser_args.test:
     from aioyagmail import SMTP
+
+""" Python Dotenv """
+from dotenv import load_dotenv
 
 """ LOCAL MODULES """
 
@@ -1840,6 +1843,7 @@ class SignalHandlerClass():
         
 """ Entry point. """
 if __name__ == '__main__':
+    load_dotenv()
 
     server_type = 'PRODUCTION'
     
