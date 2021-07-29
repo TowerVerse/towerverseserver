@@ -12,7 +12,7 @@ File description:
 Extra info:
     Run this file with the command line argument -h to see available options.
 
-    For the production server set the following environmental variables for MongoDB and Email functions(emails should be enabled for local development aswell):
+    For the production server set the following environmental variables in your .env file or your system's environmental variables for MongoDB and email functions(emails should be enabled for --local development aswell):
 
         TOWERVERSE_EMAIL_ADDRESS: The email address to send emails with,
         TOWERVERSE_EMAIL_PASSWORD: The password of the email address,
@@ -41,8 +41,8 @@ parser_args = parser.parse_args()
 """ BUILT-IN MODULES """
 import asyncio
 
-""" For hosting. """
-from os import environ
+""" For hosting, killing processes. """
+from os import environ, getpid, kill
 
 """ Formatting responses. """
 from json import dumps, loads
@@ -67,7 +67,13 @@ from uuid import uuid4
 from logging import StreamHandler, getLogger
 from time import strftime
 
+""" Handling signals. """
+from signal import SIGINT, SIGKILL, SIGTERM, signal
+
 """ 3RD-PARTY MODULES """
+
+""" Dotenv to faciitate setting up email and MongoDB. """
+from dotenv import load_dotenv
 
 """ The main way of communicating. """
 from websockets import serve as ws_serve
@@ -123,7 +129,10 @@ ip_requests: Dict[str, int] = {}
 """ The registered accounts. """
 travellers: Dict[str, Traveller] = {}
 
-""" The registered towers/rooms. """
+""" The created guilds. """
+guilds: Dict[str, Guild] = {}
+
+""" The created towers. """
 towers: Dict[str, Tower] = {}
 
 """ Accounts linked to IPs. """
@@ -162,8 +171,17 @@ account_events: Dict[str, Callable] = {}
 """ No-account-events. These are only used if the requestee is NOT logged in to an account, otherwise an error is thrown. Filled in with the no_account_only decorator. """
 no_account_events: Dict[str, Callable] = {}
 
+""" Guild-only. These are only used if the requestee is part of a guild otherwise an error is thrown. Filled in with the guild_only decorator. """
+guild_events: Dict[str, Callable] = {}
+
+""" Guild-only. These are only used if the requestee is the owner of the guild otherwise an error is thrown. Filled in with the guild_only decorator. """
+guild_owner_events: Dict[str, Callable] = {}
+
+""" No-guild-only. These are only used if the requestee is NOT part of a guild otherwise an error is thrown. Filled in with the guild_only decorator. """
+no_guild_events: Dict[str, Callable] = {}
+
 """ List of all decorators, checked by request_switcher. """
-decorators_list: Set[str] = set({'account', 'no_account'})
+decorators_list: Set[str] = set({'account', 'no_account', 'guild', 'guild_owner', 'no_guild'})
 
 """ List of all tasks to run. """
 tasks_list: Dict[str, Callable] = {}
@@ -224,33 +242,6 @@ def has_account(request_ip: str) -> bool:
     """
     return request_ip in wss_accounts
 
-def get_users(pure: bool = False) -> Dict[str, Traveller]:
-    """Returns the users which are created. Only for the database version. 
-
-    Args:
-        pure (bool): Whether or not a Traveller should be returned otherwise the raw data will be.
-
-    Returns:
-        Dict[str, Traveller]: The users dictionary.
-    """
-
-    result_users: Dict[str, Traveller] = {}
-
-    for cursor in mdb.users.find({}):
-        user_dict = list(cursor.values())[1]
-        user_id = list(cursor.keys())[1]
-
-        mongo_id = str(cursor['_id']).split('\'')[0]
-
-        if not pure:
-            result_users[user_id] = Traveller(user_id, user_dict['travellerName'], user_dict['travellerEmail'],
-                                            user_dict['travellerPassword'], user_dict['hasChangedName'])
-        else:
-            user_dict.update({'mongoId': mongo_id})
-            result_users[user_id] = user_dict
-
-    return result_users
-
 def get_user(traveller_id: str, check_in_extra: bool = False) -> Traveller:
     """Finds a user by id.
 
@@ -263,15 +254,8 @@ def get_user(traveller_id: str, check_in_extra: bool = False) -> Traveller:
     """
     traveller: Traveller = None
 
-    if IS_LOCAL:
-        if traveller_id in travellers:
-            traveller = travellers[traveller_id]
-
-    else:
-        users = get_users()
-
-        if traveller_id in users:
-            traveller = users[traveller_id]
+    if traveller_id in travellers:
+        traveller = travellers[traveller_id]
 
     if check_in_extra:
         if traveller_id in accounts_to_create:
@@ -291,14 +275,9 @@ def get_user_by_email(traveller_email: str, check_in_extra: bool = False) -> Tra
     """
     traveller: Traveller = None
 
-    if IS_LOCAL:
-        for key, item in travellers.items():
-            if item.traveller_email == traveller_email:
-                traveller = get_user(key)
-    else:
-        for key, item in get_users().items():
-            if item.traveller_email == traveller_email:
-                traveller = get_user(key)
+    for key, item in travellers.items():
+        if item.traveller_email == traveller_email:
+            traveller = get_user(key)
 
     if check_in_extra:
         for key, item in accounts_to_create.items():
@@ -306,36 +285,6 @@ def get_user_by_email(traveller_email: str, check_in_extra: bool = False) -> Tra
                 traveller = get_user(key, True)
 
     return traveller
-
-def update_user(user_id: int, **kwargs) -> Traveller:
-    """Updates a user's db keys, according to what is passed. If the key doesn't exist, it is created otherwise it's updated. 
-    
-    Args:
-        user_id (int): The traveller's id.
-    
-    Returns:
-        Traveller: The updated Traveller instance.
-    """
-    users = get_users(True)
-
-    if not user_id in users:
-        log.error('Invalid id has been passed to update_user, aborting operation')
-        return
-
-    traveller = users[user_id]
-
-    update_dict: Dict[str, str] = {'$set': {user_id: {}}}
-
-    for key, value in kwargs.items():
-        update_dict['$set'][user_id][key] = value
-
-    for key, value in traveller.items():
-        if key not in kwargs.keys() and key != 'mongoId':
-            update_dict['$set'][user_id][key] = value
-
-    mdb.users.find_one_and_update({'_id': ObjectId(traveller['mongoId'])}, update_dict)
-
-    return get_user(user_id)
 
 async def send_email(to: str, title: str, content: List[str]) -> None:
     """Sends an email, asynchronously.
@@ -376,16 +325,71 @@ def is_username_taken(traveller_name: str) -> bool:
 
     is_name_taken = False
 
-    if IS_LOCAL:
-        is_name_taken = len([traveller for traveller in travellers.values() if traveller.traveller_name == traveller_name]) > 0
-
-    else:
-        is_name_taken = len([traveller for traveller in get_users().values() if traveller.traveller_name == traveller_name]) > 0
+    is_name_taken = len([traveller for traveller in travellers.values() if traveller.traveller_name == traveller_name]) > 0
 
     if not is_name_taken:
         is_name_taken = len([traveller for traveller in accounts_to_create.values() if traveller.traveller_name == traveller_name]) > 0
 
     return is_name_taken
+
+def get_guild(guild_id: str) -> Guild:
+    """Gets a guild by id.
+
+    Args:
+        guild_id (str): The guild id.
+        
+    Returns:
+        Guild: The Guild object, if the guild is found.
+    """    
+    guild: Guild = None
+
+    if guild_id in guilds:
+        guild = guilds[guild_id]
+            
+    return guild
+
+def get_guild_info(guild_id: str) -> dict:
+    """Returns guild info.
+
+    Args:
+        guild_id (str): The guild id.
+
+    Returns:
+        dict: The guild info.
+    """    
+    guild = get_guild(guild_id)
+    
+    if not guild:
+        return
+    
+    result_dict = dict(guildId=guild.guild_id, guildName=guild.guild_name,
+                       guildDescription=guild.guild_description, guildCreator=guild.guild_creator, 
+                       guildVisibility=guild.guild_visibility, guildMaxMembers=guild.guild_max_members,
+                       guildMembers=guild.guild_members, guildBannedMembers=guild.guild_banned_members)
+
+    return result_dict
+
+def get_user_info(traveller_id: str) -> dict:
+    """Returns user info.
+
+    Args:
+        traveller_id (str): The traveller id.
+
+    Returns:
+        dict: The user info.
+    """    
+    user = get_user(traveller_id)
+    
+    if not user:
+        return
+
+    result_dict = dict(travellerId=user.traveller_id, travellerName=user.traveller_name, hasChangedName=user.has_changed_name,
+                        isInGuild=user.is_in_guild)
+    
+    if user.is_in_guild:
+        result_dict['guildId'] = user.guild_id
+        
+    return result_dict
 
 """ Main """
 
@@ -401,6 +405,9 @@ async def request_switcher(wss: WebSocketClientProtocol, data: dict):
         Decorator Check Responses:
             AccountOnly: The requested event requires that this IP be associated with an account.
             NoAccountOnly: The requested event requires that this IP NOT be associated with an account.
+            GuildOnly: The requested event requires that this account is part of a guild.
+            GuildOwnerOnly: The requested event requires that this account owns the guild it's part of.
+            NoGuildOnly: The requested event requires that this account is NOT part of a guild.
     """
 
     try:
@@ -415,7 +422,6 @@ async def request_switcher(wss: WebSocketClientProtocol, data: dict):
     
     """ Run decorators and their respective checks. """
     for decorator in decorators_list:
-
         decorator_events = dict(globals())[f'{decorator}_events']
         
         if transformed_event in decorator_events:
@@ -426,6 +432,12 @@ async def request_switcher(wss: WebSocketClientProtocol, data: dict):
 
             if 'wss' in getfullargspec(decorator_check_func).args:
                 decorator_check_args['wss'] = wss
+            
+            if 'account' in getfullargspec(decorator_check_func).args:
+                decorator_check_args['account'] = get_user(wss_accounts[wss.remote_address[0]])
+            
+            if 'guild' in getfullargspec(decorator_check_func).args:
+                decorator_check_args['guild'] = get_guild(get_user(wss_accounts[wss.remote_address[0]]).guild_id)
 
             decorator_check_result = decorator_check_func(**decorator_check_args)
 
@@ -455,6 +467,9 @@ async def request_switcher(wss: WebSocketClientProtocol, data: dict):
 
     if 'account' in target_arg_names:
         target_args['account'] = get_user(wss_accounts[wss.remote_address[0]])
+        
+    if 'guild' in target_arg_names:
+        target_args['guild'] = get_guild(get_user(wss_accounts[wss.remote_address[0]]).guild_id)
 
     args_errored = utils.check_loop_data(target_args, target_arg_names)
 
@@ -585,6 +600,23 @@ def setup_mongo(mongodb_username: str, mongodb_password: str) -> None:
         """ Prevent cold-booting MongoDB requests. """
         mdb.some_random_collection.count_documents({})
 
+        # Wrapper here aswell
+        for cursor in mdb.users.find({}):
+            traveller_mongo_id = cursor['_id']
+            traveller_id = list(cursor.keys())[1]
+        
+            del cursor['_id']
+            
+            travellers[traveller_id] = Traveller(**{utils.transform_to_call(key): value for key, value in cursor[traveller_id].items()}, mongo_id=traveller_mongo_id)
+
+        for cursor in mdb.guilds.find({}):
+            guild_mongo_id = cursor['_id']
+            guild_id = list(cursor.keys())[1]
+            
+            del cursor['_id']
+            
+            guilds[guild_id] = Guild(**{utils.transform_to_call(key): value for key, value in cursor[guild_id].items()}, mongo_id=guild_mongo_id)
+            
         log.info(f'Successfully setup MongoDB in {int(round(time() - start, 2) * 1000)} ms.')
     
     except OperationFailure:
@@ -626,7 +658,7 @@ def task(task: Callable):
         name = task.__name__
 
         if name in tasks_list:
-            log.warn(wrapper_alr_exists.format('task', name))
+            log.warning(wrapper_alr_exists.format('task', name))
 
         tasks_list[name] = task
 
@@ -645,14 +677,16 @@ def account(event: Callable):
 
         """ Don't mind if it overwrites another one, just warn. """
         if name in account_events:
-            log.warn(wrapper_alr_exists.format('account only event', name))
+            log.warning(wrapper_alr_exists.format('account only event', name))
 
         account_events[name] = event
+        
+        return event
 
     return wrapper(event)
 
 def account_check(event: str, wss: WebSocketClientProtocol) -> bool:
-    """ account_only decorator check. """
+    """ account decorator check. """
     if not has_account(wss.remote_address[0]):
         return format_res_err(event, 'AccountOnly', 'You must login to an account first before using this event.', True)
 
@@ -668,16 +702,107 @@ def no_account(event: Callable):
         name = event.__name__
 
         if name in no_account_events:
-            log.warn(wrapper_alr_exists.format('no account only event', name))
+            log.warning(wrapper_alr_exists.format('no account only event', name))
 
         no_account_events[name] = event
+        
+        return event
 
     return wrapper(event)
 
 def no_account_check(event: str, wss: WebSocketClientProtocol) -> bool:
-    """ no_account_only decorator check. """
+    """ no_account decorator check. """
     if has_account(wss.remote_address[0]):
         return format_res_err(event, 'NoAccountOnly', 'You must logout of your current account first before using this event.', True)
+
+def guild(event: Callable):
+    """Decorator. Marks an event as only accessible within a guild. Overwrites duplicates.
+
+    Args:
+        event (Callable): The event to mark.
+    """
+
+    def wrapper(event: Callable):
+
+        name = event.__name__
+
+        if name in guild_events:
+            log.warning(wrapper_alr_exists.format('guild only event', name))
+
+        guild_events[name] = event
+        
+        return event
+
+    return wrapper(event)
+
+def guild_check(event: str, account: Traveller) -> bool:
+    """ guild decorator check. """
+    if not account:
+        return
+    
+    if not account.is_in_guild:
+        return format_res_err(event, 'GuildOnly', 'You must be part of a guild before using this event.', True)
+
+def guild_owner(event: Callable):
+    """Decorator. Marks an event as only accessible if the traveller is the guild's owner. Overwrites duplicates.
+
+    Args:
+        event (Callable): The event to mark.
+    """
+
+    def wrapper(event: Callable):
+
+        name = event.__name__
+
+        if name in guild_owner_events:
+            log.warning(wrapper_alr_exists.format('guild owner only event', name))
+
+        guild_owner_events[name] = event
+        
+        return event
+
+    return wrapper(event)
+
+def guild_owner_check(event: str, account: Traveller, guild: Guild) -> bool:
+    """ guild_owner decorator check. """
+    if not account or not guild:
+        return
+
+    if not account.is_in_guild:
+        return format_res_err(event, 'GuildOnly', 'You must be part of a guild before using this event.', True)
+    
+    if not account.traveller_id == guild.guild_creator:
+        return format_res_err(event, 'GuildOwnerOnly', 'You must be the owner of your guild to use this event.', True)
+    
+def no_guild(event: Callable):
+    """Decorator. Marks an event as only accessible while NOT within a guild. Overwrites duplicates.
+
+    Args:
+        event (Callable): The event to mark.
+    """
+
+    def wrapper(event: Callable):
+
+        name = event.__name__
+
+        if name in no_guild_events:
+            log.warning(wrapper_alr_exists.format('no guild only event', name))
+
+        no_guild_events[name] = event
+        
+        return event
+
+    return wrapper(event)
+
+def no_guild_check(event: str, wss: WebSocketClientProtocol) -> bool:
+    """ no_guild decorator check. """
+    target_user = get_user(wss_accounts[wss.remote_address[0]])
+    
+    if not target_user:
+        return
+    
+    if target_user.is_in_guild:
+        return format_res_err(event, 'NoGuildOnly', 'You must leave your current guild before using this event.', True)
 
 """ Events """
 
@@ -744,7 +869,8 @@ def create_traveller(event: str, traveller_name: str, traveller_email: str, trav
     else:
         traveller_verification = '123456'
 
-    accounts_to_create[traveller_email] = TempTraveller(traveller_id, traveller_name, traveller_email, hashed_password, False, traveller_verification)
+    accounts_to_create[traveller_email] = TempTraveller(traveller_id, traveller_name, traveller_email,
+                                                        hashed_password, False, False, '', None, traveller_verification)
 
     return format_res(event, travellerId=traveller_id)
 
@@ -788,8 +914,7 @@ def login_traveller(event: str, traveller_email: str, traveller_password: str, w
     if traveller_password_checks:
         return format_res_err(event, traveller_password_checks[0], traveller_password_checks[1])
 
-    if not checkpw(bytes(traveller_password, encoding='ascii'), travellers[traveller.traveller_id].traveller_password if IS_LOCAL
-                                                            else get_users()[traveller.traveller_id].traveller_password):
+    if not checkpw(bytes(traveller_password, encoding='ascii'), travellers[traveller.traveller_id].traveller_password):
         return format_res_err(event, 'InvalidPassword', 'The password is invalid.')
 
     """ Login to the account. """
@@ -836,12 +961,9 @@ def verify_traveller(event: str, traveller_email: str, traveller_code: str, wss:
         
     target_acc = accounts_to_create[traveller_email]
     
-    if IS_LOCAL:
-        travellers[target_acc.traveller_id] = Traveller(target_acc.traveller_id, target_acc.traveller_name, target_acc.traveller_email,
-                                                        target_acc.traveller_password, target_acc.has_changed_name)
-    else:
-        mdb.users.insert_one({target_acc.traveller_id: {'travellerName': target_acc.traveller_name, 'travellerEmail': target_acc.traveller_email,
-                                                        'travellerPassword': target_acc.traveller_password, 'hasChangedName': False}})
+    travellers[target_acc.traveller_id] = Traveller(target_acc.traveller_id, target_acc.traveller_name, target_acc.traveller_email,
+                                                    target_acc.traveller_password, target_acc.has_changed_name, target_acc.is_in_guild,
+                                                    target_acc.guild_id, None)
     
     wss_accounts[wss.remote_address[0]] = target_acc.traveller_id
     
@@ -887,7 +1009,7 @@ def resend_traveller_code(event: str, traveller_email: str):
     return format_res(event)
 
 @no_account
-def reset_traveller_password(event: str, traveller_email: str, old_traveller_password: str, new_traveller_password: str):
+def reset_traveller_password(event: str, traveller_email: str):
     """Resets a not-connected traveller's password.
 
     Possible Responses:
@@ -896,11 +1018,6 @@ def reset_traveller_password(event: str, traveller_email: str, old_traveller_pas
         resetTravellerPasswordEmailExceedsLimit: The provided email exceeds the current name length limitations.
         resetTravellerPasswordEmailInvalidCharacters: The email of the account contains invalid characters.
         resetTravellerPasswordEmailInvalidFormat: The provided email is not formatted correctly. Possibly the domain name is omitted/invalid.
-
-        resetTravellerPasswordPasswordExceedsLimit: The provided password exceeds current password length limitations.
-        resetTravellerPasswordPasswordInvalidCharacters: The password of the account contains invalid characters.
-
-        resetTravellerPasswordInvalidPassword: The given password doesn't match the original one.
     """
 
     """ Email checks. """
@@ -911,26 +1028,11 @@ def reset_traveller_password(event: str, traveller_email: str, old_traveller_pas
     if traveller_email_error:
         return format_res_err(event, traveller_email_error[0], traveller_email_error[1])
 
-    """ Password checks. """
-    old_traveller_password, new_traveller_password = utils.remove_whitespace(old_traveller_password), utils.remove_whitespace(new_traveller_password)
-
-    old_traveller_password_checks, new_traveller_password_checks = utils.check_password(old_traveller_password), utils.check_password(new_traveller_password)
-
-    if old_traveller_password_checks:
-        return format_res_err(event, old_traveller_password_checks[0], old_traveller_password_checks[1])
-        
-    if new_traveller_password_checks:
-        return format_res_err(event, new_traveller_password_checks[0], new_traveller_password_checks[1])
-
+    """ Send email. """
     target_acc = get_user_by_email(traveller_email)
 
     if not target_acc:
         return format_res_err(event, 'NotFound', f'The Traveller with email {traveller_email} could not be found.')
-
-    if not checkpw(bytes(old_traveller_password, 'ascii'), target_acc.traveller_password):
-        return format_res_err(event, 'InvalidPassword', 'The password is invalid.')
-
-    """ Reset password and send email. """
 
     traveller_verification = utils.gen_verification_code() if not IS_TEST else '123456'
 
@@ -942,12 +1044,12 @@ def reset_traveller_password(event: str, traveller_email: str, old_traveller_pas
     else:
         traveller_verification = '123456'
 
-    password_change_request_codes[target_acc.traveller_id] = [traveller_verification, new_traveller_password]
+    password_change_request_codes[target_acc.traveller_id] = traveller_verification
 
     return format_res(event)
 
 @no_account
-def reset_traveller_password_final(event: str, traveller_email: str, traveller_password_code: str):
+def reset_traveller_password_final(event: str, traveller_email: str, traveller_password_code: str, new_traveller_password: str):
     """Called after resetTravellerPassword to perform the actual operation with the given code.
 
     Possible Responses:
@@ -957,8 +1059,12 @@ def reset_traveller_password_final(event: str, traveller_email: str, traveller_p
         resetTravellerPasswordFinalEmailInvalidCharacters: The email of the account contains invalid characters.
         resetTravellerPasswordFInalEmailInvalidFormat: The provided email is not formatted correctly. Possibly the domain name is omitted/invalid.
         
-        resetTravellerPasswordFinalNoCode: You haven't called resetTravellerPassword.
+        resetTravellerPasswordFinalPasswordExceedsLimit: The provided password exceeds current password length limitations.
+        resetTravellerPasswordFinalPasswordInvalidCharacters: The password of the account contains invalid characters.
+        
         resetTravellerPasswordFinalCodeExceedsLimit: The code's length is not VERIFICATION_CODE_LENGTH.
+        resetTravellerPasswordFinalNotFound: The specified traveller could not be found.
+        resetTravellerPasswordFinalNoCode: You haven't called resetTravellerPassword.
         resetTravellerPasswordFinalInvalidCode: The verification code is invalid.
     """    
     
@@ -967,6 +1073,14 @@ def reset_traveller_password_final(event: str, traveller_email: str, traveller_p
 
     if traveller_email_error:
         return format_res_err(event, traveller_email_error[0], traveller_email_error[1])
+
+    """ Password checks. """
+    new_traveller_password = utils.remove_whitespace(new_traveller_password)
+
+    new_traveller_password_checks = utils.check_password(new_traveller_password)
+
+    if new_traveller_password_checks:
+        return format_res_err(event, new_traveller_password_checks[0], new_traveller_password_checks[1])
 
     """ Reset password and send email. """
     if not len(traveller_password_code) == VERIFICATION_CODE_LENGTH:
@@ -980,15 +1094,12 @@ def reset_traveller_password_final(event: str, traveller_email: str, traveller_p
     if not target_acc.traveller_id in password_change_request_codes:
         return format_res_err(event, 'NoCode', 'No password change code has been requested.')
 
-    if not password_change_request_codes[target_acc.traveller_id][0] == traveller_password_code:
+    if not password_change_request_codes[target_acc.traveller_id] == traveller_password_code:
         return format_res_err(event, 'InvalidCode', 'The provided code is invalid.')
 
-    new_hashed_password = hashpw(bytes(password_change_request_codes[target_acc.traveller_id][1], 'ascii'), gensalt(rounds=13))
+    new_hashed_password = hashpw(bytes(new_traveller_password, 'ascii'), gensalt(rounds=13))
 
-    if IS_LOCAL:
-        travellers[target_acc.traveller_id].traveller_password = new_hashed_password
-    else:
-        update_user(target_acc.traveller_id, travellerPassword=new_hashed_password)
+    travellers[target_acc.traveller_id].traveller_password = new_hashed_password
 
     if not IS_TEST:
         loop.create_task(send_email(target_acc.traveller_email, email_title.format('password changed'), [email_content_changed.format('password')]))
@@ -1011,29 +1122,27 @@ def logout_traveller(event: str, wss: WebSocketClientProtocol):
     return format_res(event)
 
 @account
+def fetch_traveller(event: str, traveller_id: str):
+    """Fetches a traveller's info, if he exists.
+
+    Possible Responses:
+        fetchTravellerReply: Info about the traveller has been successfully fetched.
+
+        fetchTravellerNotFound: The traveller with the requested ID could not be found.
+    """
+    if not get_user(traveller_id):
+        return format_res_err(event, 'NotFound', f'Traveller with id {traveller_id} not found.')
+    
+    return format_res(event, **get_user_info(traveller_id))
+
+@account
 def fetch_travellers(event: str):
     """Fetches every single traveller's ID.
         
     Possible Responses:
         fetchTravellersReply: The existing travellers' IDs have been successfully fetched.
     """
-    return format_res(event, travellerIds=[id for id in travellers] if IS_LOCAL else [id for id in get_users()])
-
-@account
-def fetch_traveller(event: str, traveller_id: str):
-    """Fetches a traveller's info, if he exists in the database.
-
-    Possible Responses:
-        fetchTravellerReply: Info about a traveller has been successfully fetched.
-
-        fetchTravellerNotFound: The traveller with the requested ID could not be found.
-    """
-    traveller = get_user(traveller_id)
-
-    if traveller:
-        return format_res(event, travellerName=traveller.traveller_name, travellerId=traveller_id)
-
-    return format_res_err(event, 'NotFound', f'Traveller with id {traveller_id} not found.')
+    return format_res(event, travellerIds=[id for id in travellers])
 
 @account
 def total_travellers(event: str):
@@ -1042,7 +1151,7 @@ def total_travellers(event: str):
     Possible Responses:
         totalTravellersReply: The number of existing travellers has been successfully fetched.
     """
-    return format_res(event, totalTravellers=len(travellers) if IS_LOCAL else len(get_users()))
+    return format_res(event, totalTravellers=len(travellers))
 
 @account
 def online_travellers(event: str):
@@ -1054,11 +1163,9 @@ def online_travellers(event: str):
 
     result_data = dict(onlineTravellers=len(wss_accounts))
 
-    if IS_LOCAL:
-        online_travellers_ids = [id for id in travellers if id in wss_accounts.values()]
 
-    else:
-        online_travellers_ids = [id for id in get_users() if id in wss_accounts.values()]
+    online_travellers_ids = [id for id in travellers if id in wss_accounts.values()]
+
 
     result_data['onlineTravellersIds'] = online_travellers_ids
 
@@ -1094,10 +1201,7 @@ def reset_traveller_password_account(event: str, old_traveller_password: str, ne
     """ Reset password and send email. """
     new_hashed_password = hashpw(bytes(new_traveller_password, 'ascii'), gensalt(rounds=13))
 
-    if IS_LOCAL:
-        travellers[account.traveller_id].traveller_password = new_hashed_password
-    else:
-        update_user(account.traveller_id, travellerPassword=new_hashed_password)
+    travellers[account.traveller_id].traveller_password = new_hashed_password
 
     if not IS_TEST:
         loop.create_task(send_email(account.traveller_email, email_title.format('password changed'), [email_content_changed.format('password')]))
@@ -1182,10 +1286,7 @@ def reset_traveller_email_final(event: str, traveller_email_code: str, account: 
         
     old_traveller_email = account.traveller_email
 
-    if IS_LOCAL:
-        travellers[account.traveller_id].traveller_email = email_change_request_codes[account.traveller_id][1]
-    else:
-        update_user(account.traveller_id, travellerEmail=email_change_request_codes[account.traveller_id][1])
+    travellers[account.traveller_id].traveller_email = email_change_request_codes[account.traveller_id][1]
 
     if not IS_TEST:
         loop.create_task(send_email(old_traveller_email, email_title.format('email changed'), [email_content_changed.format('email')]))
@@ -1238,25 +1339,391 @@ def reset_traveller_name(event: str, traveller_password: str, new_traveller_name
 
     has_changed_name = False
 
-    if IS_LOCAL:
-        has_changed_name = travellers[account.traveller_id].has_changed_name
 
-    else:
-        has_changed_name = get_users(True)[account.traveller_id]['hasChangedName']
+    has_changed_name = travellers[account.traveller_id].has_changed_name
 
     if has_changed_name:
         return format_res_err(event, 'NameAlreadyChanged', 'The traveller\'s name has already been changed once.')
 
-    if IS_LOCAL:
-        travellers[account.traveller_id].traveller_name = new_traveller_name
-        travellers[account.traveller_id].has_changed_name = True
-    
-    else:
-        update_user(account.traveller_id, travellerName=new_traveller_name, hasChangedName=True)
+    travellers[account.traveller_id].traveller_name = new_traveller_name
+    travellers[account.traveller_id].has_changed_name = True
 
     if not IS_TEST:
         loop.create_task(send_email(account.traveller_email, email_title.format('username changed'), [f"{email_content_changed.format('username')}"]))
 
+    return format_res(event)
+
+""" No guild only """
+
+@account
+@no_guild
+def create_guild(event: str, guild_name: str, guild_description: str, guild_visibility: str, guild_max_members: int, account: Traveller):
+    """Creates a guild.
+
+    Possible Responses:
+        createGuildReply: The guild has been successfully created.
+        
+        createGuildNameExceedsLimit: The provided name exceeds the current guild name length limitations.
+        createGuildNameInvalidCharacters: The name of the guild contains invalid characters.
+        
+        createGuildDescriptionExceedsLimit: The provided name exceeds the current guild name length limitations.
+        createGuildDescriptionInvalidCharacters: The name of the guild contains invalid characters.
+        
+        createGuildVisibilityInvalid: The guild visibility parameter is formatted incorrectly.
+    
+        createGuildMaxMembersInvalidCharacters: The guild max members key contains invalid characters.
+        createGuildMaxMembersExceedsLimit: The guild max members key exceeds current length limitations.
+    """
+    
+    """ Name checks. """
+    guild_name = guild_name.strip()
+    
+    if not utils.check_length(guild_name, MIN_GUILD_NAME_LENGTH, MAX_GUILD_NAME_LENGTH):
+        return format_res_err(event, 'NameExceedsLimit', length_invalid.format('Guild name', MIN_GUILD_NAME_LENGTH, MAX_GUILD_NAME_LENGTH))
+    
+    if not utils.check_chars(guild_name, GUILD_NAME_CHARACTERS):
+        return format_res_err(event, 'NameInvalidCharacters', chars_invalid.format('The guild name'))
+
+    """ Description checks. """
+    guild_description = guild_description.strip()
+    
+    if not utils.check_length(guild_description, MIN_GUILD_DESCRIPTION_LENGTH, MAX_GUILD_DESCRIPTION_LENGTH):
+        return format_res_err(event, 'DescriptionExceedsLimit', length_invalid.format('Guild description', MIN_GUILD_DESCRIPTION_LENGTH, MAX_GUILD_DESCRIPTION_LENGTH))
+    
+    if not utils.check_chars(guild_description, GUILD_DESCRIPTION_CHARACTERS):
+        return format_res_err(event, 'DescriptionInvalidCharacters', chars_invalid.format('The guild description'))
+
+    """ Visibility checks. """
+    if not guild_visibility in ['public', 'private']:
+        return format_res_err(event, 'VisibilityInvalid', argument_invalid_type.format('Guild visibility', 'public or private'))
+    
+    """ Max member checks. """
+    if not utils.check_chars(guild_max_members, digits):
+        return format_res_err(event, 'MaxMembersInvalidCharacters', chars_invalid.format('The guild max members key'))
+    
+    if not utils.check_length(guild_max_members, 1, MAX_GUILD_MAX_MEMBERS_NUMBER):
+        return format_res_err(event, 'MaxMembersExceedsLimit', length_specific_invalid.format('The guild max members value', 1, MAX_GUILD_MAX_MEMBERS_NUMBER))
+    
+    guild_id = utils.gen_id() if not IS_TEST else '123456'
+    guild_creator = account.traveller_id
+    guild_members = [guild_creator]
+    
+    guilds[guild_id] = Guild(guild_id, guild_name, guild_description, guild_creator, guild_visibility, guild_max_members, guild_members, [], None)
+    travellers[account.traveller_id].is_in_guild = True
+    travellers[account.traveller_id].guild_id = guild_id
+
+    return format_res(event, guildId=guild_id)
+
+@account
+@no_guild
+def join_guild(event: str, guild_id: str, account: Traveller):
+    """Joins a guild.
+
+    Possible Responses:
+        joinGuildReply: The guild has been successfully joined.
+        
+        joinGuildNotFound: The guild with the requested ID could not be found.
+        joinGuildMaxedOut: The target guild is already at max capacity.
+        joinGuildBanned: You have been banned from this guild.
+    """
+    
+    """ Guild id checks. """
+    guild = get_guild(guild_id)
+    
+    if not guild:
+        return format_res_err(event, 'NotFound', f'Guild with id {guild_id} not found.')
+        
+    if int(guild.guild_max_members) == len(guild.guild_members):
+        return format_res_err(event, 'MaxedOut', 'This guild is already full.')
+
+    if account.traveller_id in guild.guild_banned_members:
+        return format_res_err(event, 'Banned', 'You have been banned from this guild.')
+
+    target_id = account.traveller_id
+
+    guilds[guild_id].guild_members.append(target_id)
+    travellers[target_id].is_in_guild = True
+    travellers[target_id].guild_id = guild_id
+
+    return format_res(event, guildId=guild_id)
+
+@account
+@no_guild
+def fetch_guild(event: str, guild_id: str):
+    """Fetches a guild's info, if it exists.
+
+    Possible Responses:
+        fetchGuildReply: Info about the guild has been successfully fetched.
+        
+        fetchGuildNotFound: The guild with the requested ID could not be found.
+    """
+    if not get_guild(guild_id):
+        return format_res_err(event, 'NotFound', f'Guild with id {guild_id} not found.')
+
+    return format_res(event, **get_guild_info(guild_id))
+
+@account
+@no_guild
+def fetch_guilds(event: str):
+    """Fetches every single guild's ID.
+
+    Possible Responses:
+        fetchGuildsReply: The existing guilds' IDs have been successfully fetched.
+    """
+    guild_ids = []
+
+    guild_ids = [guild.guild_id for guild in guilds.values() if guild.guild_visibility == 'public']
+
+    return format_res(event, guildIds=guild_ids)
+
+""" Guild only """
+
+@account
+@guild
+def current_guild(event: str, guild: Guild):
+    """Returns info about the user's current guild.
+
+    Possible Responses:
+        currentGuildReply: Info of the current guild has been fetched.
+    """
+    return format_res(event, **get_guild_info(guild.guild_id))
+
+@account
+@guild
+def leave_guild(event: str, account: Traveller, guild: Guild):
+    """Removes the user from his current guild.
+
+    Possible Responses:
+        leaveGuildReply: The user has successfully left the guild.
+    """
+    
+    target_id = account.traveller_id
+    
+    if target_id == guild.guild_creator:
+        if not IS_TEST:
+            for traveller_id in guild.guild_members:
+                travellers[traveller_id].is_in_guild = False
+                travellers[traveller_id].guild_id = ''
+            
+            del guilds[guild.guild_id]
+        
+    else:
+        guilds[guild.guild_id].guild_members.remove(target_id)
+
+        travellers[target_id].is_in_guild = False
+        travellers[target_id].guild_id = ''
+        
+    if IS_TEST:
+        travellers[target_id].is_in_guild = False
+        travellers[target_id].guild_id = ''
+        
+    return format_res(event)
+
+""" Guild owner only """
+
+@account
+@guild_owner
+def change_guild_name(event: str, new_guild_name: str, guild: Guild):
+    """Changes the guild's name.
+
+    Possible Responses:
+        changeGuildNameReply: The guild's name has been changed successfully.
+        
+        changeGuildNameNameExceedsLimit: The provided name exceeds the current guild name length limitations.
+        createGuildNameNameInvalidCharacters: The name of the guild contains invalid characters.
+    """
+    
+    """ Name checks. """
+    new_guild_name = new_guild_name.strip()
+    
+    if not utils.check_length(new_guild_name, MIN_GUILD_NAME_LENGTH, MAX_GUILD_NAME_LENGTH):
+        return format_res_err(event, 'NameExceedsLimit', length_invalid.format('Guild name', MIN_GUILD_NAME_LENGTH, MAX_GUILD_NAME_LENGTH))
+    
+    if not utils.check_chars(new_guild_name, GUILD_NAME_CHARACTERS):
+        return format_res_err(event, 'NameInvalidCharacters', chars_invalid.format('The guild name'))
+    
+    guilds[guild.guild_id].guild_name = new_guild_name
+
+    return format_res(event)
+
+@account
+@guild_owner
+def change_guild_description(event: str, new_guild_description: str, guild: Guild):
+    """Changes the guild's description.
+
+    Possible Responses:
+        changeGuildDescriptionReply: The guild's description has been changed successfully.
+        
+        changeGuildDescriptionDescriptionExceedsLimit: The provided description exceeds the current guild description length limitations.
+        changeGuildDescriptionDescriptionInvalidCharacters: The description of the guild contains invalid characters.
+    """
+    
+    """ Description checks. """
+    new_guild_description = new_guild_description.strip()
+    
+    if not utils.check_length(new_guild_description, MIN_GUILD_DESCRIPTION_LENGTH, MAX_GUILD_DESCRIPTION_LENGTH):
+        return format_res_err(event, 'DescriptionExceedsLimit', length_invalid.format('Guild description', MIN_GUILD_DESCRIPTION_LENGTH, MAX_GUILD_DESCRIPTION_LENGTH))
+    
+    if not utils.check_chars(new_guild_description, GUILD_DESCRIPTION_CHARACTERS):
+        return format_res_err(event, 'DescriptionInvalidCharacters', chars_invalid.format('The guild description'))
+    
+    guilds[guild.guild_id].guild_description = new_guild_description
+
+    return format_res(event)
+
+@account
+@guild_owner
+def change_guild_visibility(event: str, new_guild_visibility: str, guild: Guild):
+    """Changes the guild's visibility.
+
+    Possible Responses:
+        changeGuildVisibilityReply: The guild's visibility has been changed successfully.
+        
+        changeGuildVisibilityVisibilityInvalid: The guild visibility parameter is formatted incorrectly.
+    """
+    
+    """ Visibility checks. """
+    if not new_guild_visibility in ['public', 'private']:
+        return format_res_err(event, 'VisibilityInvalid', argument_invalid_type.format('Guild visibility', 'public or private'))
+
+    guilds[guild.guild_id].guild_visibility = new_guild_visibility
+        
+    return format_res(event)
+
+@account
+@guild_owner
+def change_guild_max_members(event: str, new_guild_max_members: str, guild: Guild):
+    """Changes the guild's max members number.
+
+    Possible Responses:
+        changeGuildMaxMembersReply: The guild's name has been changed successfully.
+        
+        changeGuildMaxMembersMaxMembersInvalidCharacters: The guild max members key contains invalid characters.
+        changeGuildMaxMembersMaxMembersExceedsLimit: The guild max members key exceeds current length limitations.
+        changeGuildMaxMembersMembersOverflow: The new max members key is less than the current guild members.
+    """
+    
+    """ Max member checks. """
+    if not utils.check_chars(new_guild_max_members, digits):
+        return format_res_err(event, 'MaxMembersInvalidCharacters', chars_invalid.format('The guild max members key'))
+    
+    if not utils.check_length(new_guild_max_members, 1, MAX_GUILD_MAX_MEMBERS_NUMBER):
+        return format_res_err(event, 'MaxMembersExceedsLimit', length_specific_invalid.format('The guild max members value', 1, MAX_GUILD_MAX_MEMBERS_NUMBER))
+    
+    if len(guild.guild_members) > int(guild.guild_max_members):
+        return format_res_err(event, 'MembersOverflow', 'The new max members key is less than the current guild members.')
+
+    guilds[guild.guild_id].guild_max_members = new_guild_max_members
+        
+    return format_res(event)
+
+@account
+@guild_owner
+def kick_guild_member(event: str, member_to_kick_id: str, guild: Guild):
+    """Kicks a guild member.
+
+    Possible Responses:
+        kickGuildMemberReply: The target traveller has been successfully kicked.
+        
+        kickGuildMemberNotFound: The target traveller could not be found.
+        kickGuildMemberSelfKick: You can't kick yourself.
+    """
+    
+    if member_to_kick_id not in guild.guild_members:
+        return format_res_err(event, 'NotFound', 'The target user could not be found in this guild.')
+    
+    if member_to_kick_id == guild.guild_creator and not IS_TEST:
+        return format_res_err(event, 'SelfKick', 'You can\'t kick yourself!')
+    
+    if not IS_TEST:
+        guilds[guild.guild_id].guild_members.remove(member_to_kick_id)
+        travellers[member_to_kick_id].is_in_guild = False
+        travellers[member_to_kick_id].guild_id = ''
+        
+    return format_res(event)
+    
+@account
+@guild_owner
+def ban_guild_member(event: str, member_to_ban_id: str, guild: Guild):
+    """Bans a guild member.
+
+    Possible Responses:
+        banGuildMemberReply: The target traveller has been successfully banned.
+        
+        banGuildMemberNotFound: The target traveller could not be found.
+        banGuildMemberSelfKick: You can't ban yourself.
+    """
+    
+    if member_to_ban_id not in guild.guild_members:
+        return format_res_err(event, 'NotFound', 'The target user could not be found in this guild.')
+
+    if member_to_ban_id == guild.guild_creator and not IS_TEST:
+        return format_res_err(event, 'SelfBan', 'You can\'t ban yourself!')
+
+    if not IS_TEST:
+        guilds[guild.guild_id].guild_members.remove(member_to_ban_id)
+        travellers[member_to_ban_id].is_in_guild = False
+        travellers[member_to_ban_id].guild_id = ''
+        
+    return format_res(event)
+
+@account
+@guild_owner
+def unban_guild_member(event: str, member_to_unban_id: str, guild: Guild):
+    """Unbans a previously banned guild member.
+
+    Possible Responses:
+        unbanGuildMemberReply: The target traveller has been successfully unbanned.
+        
+        unbanGuildMemberNotFound: The target traveller could not be found.
+        unbanGuildMemberSelfKick: You can't unban yourself.
+    """
+    
+    if member_to_unban_id not in guild.guild_banned_members and not IS_TEST:
+        return format_res_err(event, 'NotFound', 'The target user could not be found in the banned members of this guild.')
+    
+    if member_to_unban_id == guild.guild_creator and not IS_TEST:
+        return format_res_err(event, 'SelfUnban', 'You can\'t unban yourself!')
+    
+    if not IS_TEST:
+        guilds[guild.guild_id].guild_banned_members.remove(member_to_unban_id)
+        
+    return format_res(event)
+
+@account
+@guild_owner
+def clear_banned_guild_members(event: str, guild: Guild):
+    """Clears all previously banned guild members.
+
+    Possible Responses:
+        clearBannedGuildMembersReply: The banned members list has been successfully cleared.
+    """
+    
+    guilds[guild.guild_id].guild_banned_members.clear()
+    
+    return format_res(event)
+
+@account
+@guild_owner
+def transfer_guild_ownership(event: str, new_guild_owner_id: str, guild: Guild):
+    """Transfers guild ownership to an existing member.
+
+    Possible Responses:
+        transferGuildOwnershipReply: The guild's onwership has been transferred successfully.
+
+        transferGuildOwnershipAlreadyOwner: You can't set the owner as the owner!
+        transferGuildOwnershipNotFound: The target traveller could not be found.
+    """
+    
+    """ Member checks. """
+    if new_guild_owner_id not in guild.guild_members:
+        return format_res_err(event, 'NotFound', 'The target user could not be found in this guild.')
+    
+    if new_guild_owner_id == guild.guild_creator and not IS_TEST:
+        return format_res_err(event, 'AlreadyOwner', 'You can\'t become the owner again!')
+
+    guilds[guild.guild_id].guild_creator = new_guild_owner_id
+        
     return format_res(event)
 
 """ Tasks """
@@ -1295,9 +1762,87 @@ async def cleanup_temp_accounts() -> None:
         accounts_to_create.clear()
         await asyncio.sleep(TEMP_ACCOUNT_CLEANUP_INTERVAL)
 
+@task
+async def update_local_to_db() -> None:
+    """ Saves local variables to MongoDB, periodically. """
+        
+    while True:
+        push_local_to_db()
+        
+        await asyncio.sleep(CLOUD_SAVE_LOCALS_INTERVAL)
+
+""" Other """
+def push_local_to_db() -> None:
+    if IS_LOCAL or IS_TEST:
+        return
+
+    if not len(travellers) == 0:
+        for _, traveller_object in travellers.items():
+            update_dict: Dict[str, Traveller] = {traveller_object.traveller_id: {}}
+            
+            for key, value in traveller_object.__dict__.items():
+                if key == 'mongo_id':
+                    continue
+                    
+                update_dict[traveller_object.traveller_id][utils.transform_to_original(key)] = value
+                
+            if traveller_object.mongo_id:
+                mdb.users.update_one({'_id': ObjectId(traveller_object.mongo_id)}, {'$set': update_dict}, upsert=True)
+            else:
+                travellers[traveller_object.traveller_id].mongo_id = mdb.users.insert_one(update_dict).inserted_id
+            
+    else:
+        log.warning(update_local_empty.format('travellers'))
+        
+    if not len(guilds) == 0:
+        for _, guild_object in guilds.items():
+            update_dict: Dict[str, Guild] = {guild_object.guild_id: {}}
+            
+            for key, value in guild_object.__dict__.items():
+                if key == 'mongo_id':
+                    continue
+                    
+                update_dict[guild_object.guild_id][utils.transform_to_original(key)] = value
+            
+            if guild_object.mongo_id:
+                mdb.guilds.update_one({'_id': ObjectId(guild_object.mongo_id)}, {'$set': update_dict}, upsert=True)
+            else:
+                guilds[guild_object.guild_id].mongo_id = mdb.guilds.insert_one(update_dict).inserted_id
+            
+        for cursor in mdb.guilds.find({}):
+            guild_found = False
+            
+            for guild in guilds.values():
+                if guild.mongo_id == cursor['_id']:
+                    guild_found = True
+                    break
+
+            if not guild_found:
+                mdb.guilds.delete_one({'_id': ObjectId(cursor['_id'])})
+            
+    else:
+        log.warning(update_local_empty.format('guilds'))
+    
+    if not len(travellers) == 0 or not len(guilds) == 0:
+        log.info('Successfully saved local variables to MongoDB.')
+
+class SignalHandlerClass():
+    """ Used to handle sudden signal shutdowns to update the database. """
+    def __init__(self) -> None:
+        self.signal_passed = False
+        
+        signal(SIGINT, self.sigterm_handler)
+        signal(SIGTERM, self.sigterm_handler)
+    
+    def sigterm_handler(self, *args, **kwargs) -> None:
+        push_local_to_db()
+        
+        kill(getpid(), SIGKILL)
+        
+        self.signal_passed = True
+        
 """ Entry point. """
 if __name__ == '__main__':
-
     server_type = 'PRODUCTION'
     
     if IS_LOCAL:
@@ -1307,6 +1852,8 @@ if __name__ == '__main__':
         server_type = 'TEST'
         
     log.info(f'Server type: {server_type}')
+
+    load_dotenv()
 
     if not IS_TEST:
         if not 'TOWERVERSE_EMAIL_ADDRESS' in environ or not 'TOWERVERSE_EMAIL_PASSWORD' in environ:
@@ -1322,7 +1869,7 @@ if __name__ == '__main__':
                 exit()
             else:
                 setup_mongo(environ['TOWERVERSE_MONGODB_USERNAME'], environ['TOWERVERSE_MONGODB_PASSWORD'])
-
+        
     port = environ.get('PORT', 5000)
 
     start_server = ws_serve(serve, '0.0.0.0', port)
@@ -1344,8 +1891,19 @@ if __name__ == '__main__':
         log.info(f'Server running at port: {port}')
 
     try:
-        loop.run_forever()
+        sigterm_handler = SignalHandlerClass()
+        
+        while not sigterm_handler.signal_passed:
+            loop.run_forever()
+            
+        else:
+            exit()
+        
     except KeyboardInterrupt:
         exit()
+        
     except Exception as e:
         utils.log_error_and_exit('Server shut down due to an error', e)
+
+    finally:
+        push_local_to_db()

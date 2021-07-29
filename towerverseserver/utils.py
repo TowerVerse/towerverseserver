@@ -119,7 +119,7 @@ def check_loop_data(data: dict, keys: List[str]) -> str:
         return result_response
 
 def gen_id() -> str:
-    """Generates an ID with 15 digits for use when creating an account.
+    """Generates an ID with 15 digits.
 
     Returns:
         str: The resulting ID.

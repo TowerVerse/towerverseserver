@@ -18,13 +18,16 @@
 
 ## Installing
 
-### Requirements:
+<details>
+<summary>Requirements</summary>
 
 - **OS: Windows 10/macOS/Linux distribution (commands shown here are for bash)**
 - **python >= 3.7.0**
 - **pip3**
+</details>
 
-### Procedure
+<details>
+<summary>Procedure</summary>
 
 - **Fork this repository**
 
@@ -33,6 +36,7 @@
 - **```cd {fork directory}```**
 
 - **```pip install .``` and ```pip install .[tests]``` if you are planning to add new events.**
+</details>
 
 ## Hosting locally
 
